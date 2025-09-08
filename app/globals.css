@@ -1,26 +1,137 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
+    /* Variabel warna tetap sama */
+    --background: #ffffff;
+    --foreground: #171717;
+  }
+
+  /* Override variables when .dark is set on the root */
+  .dark {
     --background: #0a0a0a;
     --foreground: #ededed;
+    color-scheme: dark;
+  }
+
+  /* Dark theme bridge: map common light utilities to dark equivalents */
+  /* Pure black dark mode surfaces */
+  .dark .bg-white { background-color: #000 !important; }
+  .dark .bg-white\/80 { background-color: rgba(0,0,0,0.8) !important; }
+  .dark .bg-white\/90 { background-color: rgba(0,0,0,0.9) !important; }
+  .dark .bg-slate-50 { background-color: #000 !important; }
+  .dark .bg-slate-100 { background-color: #0a0a0a !important; }
+
+  /* Neutral borders in dark */
+  .dark .border-slate-200 { border-color: #262626 !important; }
+  .dark .border-slate-300 { border-color: #404040 !important; }
+
+  /* Neutral text in dark */
+  .dark .text-slate-900 { color: #e5e5e5 !important; }
+  .dark .text-slate-800 { color: #e5e5e5 !important; }
+  .dark .text-slate-700 { color: #d4d4d4 !important; }
+  .dark .text-slate-600 { color: #a3a3a3 !important; }
+  .dark .text-slate-500 { color: #a3a3a3 !important; }
+
+  /* Terapkan font dasar ke body */
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-space-grotesk), sans-serif;
+    font-feature-settings: "kern" 1, "liga" 1, "cv01" 1, "cv02" 1;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Terapkan font judul ke semua heading dengan Swiss typography principles */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-space-grotesk), sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.1;
+  }
+
+  /* Swiss design monospace for specific elements */
+  .font-mono {
+    font-family: var(--font-space-mono), 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Menlo', monospace;
+    font-feature-settings: "zero" 1, "cv01" 1;
+  }
+
+  /* Enhance readability for body text */
+  p, li {
+    line-height: 1.6;
+    font-feature-settings: "kern" 1, "liga" 1;
+  }
+
+  /* Swiss design focus on precise spacing */
+  * {
+    letter-spacing: inherit;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  /* Custom Swiss design utilities */
+  .text-balance {
+    text-wrap: balance;
+  }
+  /* Hide scrollbars but keep scroll functionality */
+  .no-scrollbar {
+    -ms-overflow-style: none; /* IE and old Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none; /* Chrome, Safari */
+  }
+  /* Force the metrics section to use dark background when dark mode is active */
+  .dark #metrics { background-color: #0b0b0b !important; }
+  /* Force logo swap regardless of Next/Image wrappers */
+  .logo-dark { display: block; }
+  .logo-light { display: none; }
+  .dark .logo-dark { display: none !important; }
+  .dark .logo-light { display: block !important; }
+  /* Dark mode glow effects for sidebar/links */
+  .dark .hover-text-glow:hover {
+    text-shadow: 0 0 8px rgba(255, 255, 255, 0.6), 0 0 18px rgba(255, 255, 255, 0.35);
+  }
+  .dark .hover-icon-glow:hover svg {
+    filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.45));
+  }
+  /* Subtle divider for dark mode */
+  .divider-dark { border-color: #1f1f1f; }
+  
+  .tracking-tighter {
+    letter-spacing: -0.05em;
+  }
+
+  /* Floating mascot subtle animation every ~3s */
+  @keyframes mascot-bob {
+    0% { transform: translateY(0) rotate(0deg) scale(1); }
+    4% { transform: translateY(-4px) rotate(-2deg) scale(1.02); }
+    8% { transform: translateY(0) rotate(0deg) scale(1); }
+    100% { transform: translateY(0) rotate(0deg) scale(1); }
+  }
+  .animate-mascot {
+    animation: mascot-bob 3s ease-in-out infinite;
+    will-change: transform;
+  }
+
+    /* Marquee utilities */
+    @keyframes scroll-x {
+      0% {
+        transform: translateX(0);
+      }
+      100% {
+        transform: translateX(-50%);
+      }
+    }
+
+    .animate-scroll-x {
+      animation: scroll-x 30s linear infinite;
+    }
+
+    /* Allow pausing marquee on hover for accessibility */
+    .pause-on-hover:hover .animate-scroll-x {
+      animation-play-state: paused;
+    }
 }

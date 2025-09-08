@@ -1,0 +1,169 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/auth.config";
+import { prisma } from "@/lib/prisma";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { PromptTemplate } from "@langchain/core/prompts";
+import { HarmBlockThreshold, HarmCategory } from "@google/generative-ai";
+import { assertSameOrigin } from "@/lib/security";
+
+export async function POST(_req: NextRequest, ctx: any) {
+  try { assertSameOrigin(_req as any); } catch (e: any) { return NextResponse.json({ error: 'Forbidden' }, { status: e?.status || 403 }); }
+  const { id } = await (ctx as any).params;
+  const session = (await getServerSession(authOptions as any)) as any;
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const url = new URL(_req.url);
+  const force = url.searchParams.get('force') === '1';
+  const reset = url.searchParams.get('reset') === '1';
+
+  // Fetch roadmap owned by the user
+  const roadmap = await (prisma as any).roadmap.findFirst({ where: { id, userId: session.user.id } });
+  if (!roadmap) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const content = (roadmap as any).content || {};
+  const milestones: any[] = Array.isArray(content?.milestones) ? content.milestones : [];
+  if (milestones.length === 0) return NextResponse.json({ error: "No milestones" }, { status: 400 });
+
+  // Block regeneration for published roadmaps entirely
+  if ((roadmap as any).published) {
+    return NextResponse.json({ error: 'Roadmap sudah dipublikasikan dan tidak dapat di-generate ulang.' }, { status: 400 });
+  }
+
+  function isMaterialsComplete(content0: any): boolean {
+    try {
+      const ms: any[] = Array.isArray(content0?.milestones) ? content0.milestones : [];
+      const mats: any[][] = Array.isArray(content0?.materialsByMilestone) ? content0.materialsByMilestone : [];
+      if (!ms.length) return false;
+      for (let i = 0; i < ms.length; i++) {
+        const m: any = ms[i] || {};
+        const expected = Array.isArray(m.subbab)
+          ? m.subbab.length
+          : (Array.isArray(m.sub_tasks) ? m.sub_tasks.length : 0);
+        if (expected > 0) {
+          const got = Array.isArray(mats[i]) ? mats[i].length : 0;
+          if (got < expected) return false;
+        }
+      }
+      return true;
+    } catch { return false; }
+  }
+
+  // Gate: only one generation per user at a time (stale after 45 minutes)
+  const others = await (prisma as any).roadmap.findMany({ where: { userId: session.user.id }, select: { id: true, content: true } });
+  const now = Date.now();
+  const hasActiveOther = others.some((r: any) => {
+    if (String(r.id) === String(id)) return false;
+    const gen = (r?.content as any)?._generation || {};
+    if (!gen?.inProgress) return false;
+    const startedAt = gen?.startedAt ? Date.parse(gen.startedAt) : 0;
+    // consider stale if older than 45 minutes
+    return startedAt && (now - startedAt) < 45 * 60 * 1000;
+  });
+  if (hasActiveOther) {
+    return NextResponse.json({ error: 'Terdapat proses generate materi lain yang masih berjalan. Selesaikan atau tunggu hingga selesai sebelum memulai yang baru.' }, { status: 409 });
+  }
+
+  // If already prepared and complete, return unless forcing regeneration
+  if (!force && isMaterialsComplete(content)) {
+    return NextResponse.json({ ok: true, alreadyPrepared: true });
+  }
+
+  const model = new ChatGoogleGenerativeAI({
+    model: "gemini-1.5-flash-latest",
+    apiKey: process.env.GOOGLE_API_KEY,
+    temperature: 0.6,
+    safetySettings: [
+      { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+      { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+      { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+      { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+    ],
+  });
+
+  const prompt = new PromptTemplate({
+    template: `Anda adalah mentor. Tulis materi belajar yang jelas dan ramah pemula untuk satu milestone.
+
+Milestone: {topic}
+Subbab:
+{subbab}
+
+Instruksi:
+- Jelaskan konsep inti secara runtut dan praktis, gunakan bahasa Indonesia yang natural.
+- Sertakan 2-3 paragraf narasi. Tambahkan 1-2 poin materi (bullet) yang menekankan inti konsep.
+- Jangan menambahkan tugas/ujian/latihan/projek.
+- Kembalikan hanya teks panjang untuk "body" dan bullet dalam format: Body:\n<paragraf>\n\nPoin:\n- <poin a>\n- <poin b>
+`,
+    inputVariables: ["topic", "subbab"],
+  });
+
+  // Optionally clear progress and materials when resetting
+  try {
+    if (reset) {
+      try {
+        await (prisma as any).roadmapProgress.upsert({
+          where: { roadmapId: id },
+          update: { completedTasks: {}, percent: 0 },
+          create: { roadmapId: id, completedTasks: {}, percent: 0 },
+        });
+      } catch {}
+    }
+    const base = reset ? { ...(content || {}), materialsByMilestone: [] } : (content || {});
+    const mark = { ...base, _generation: { inProgress: true, startedAt: new Date().toISOString() } };
+    await (prisma as any).roadmap.update({ where: { id: (roadmap as any).id }, data: { content: mark } });
+  } catch {}
+
+  const materialsByMilestone: any[][] = [];
+  try {
+    for (let i = 0; i < milestones.length; i++) {
+      const m = milestones[i];
+      const list: string[] = Array.isArray(m.subbab)
+        ? m.subbab
+        : Array.isArray(m.sub_tasks)
+          ? (m.sub_tasks as any[]).map((t) => (typeof t === 'string' ? t : t?.task)).filter(Boolean)
+          : [];
+      const items: any[] = [];
+      for (let j = 0; j < list.length; j++) {
+        const sub = list[j];
+        const details = `- ${sub}`;
+        const p = await prompt.format({ topic: `${m.topic} — ${sub}`, subbab: details });
+        try {
+          const res = await model.invoke([{ role: 'user', content: p }] as any);
+          let text = (res as any)?.content?.[0]?.text || (res as any)?.content || '';
+          text = String(text).slice(0, 5000); // cap body length per subbab
+          const hero = `https://source.unsplash.com/1200x500/?${encodeURIComponent(sub)}`;
+          const safeTitle = String(sub || '').slice(0, 200);
+          items.push({ milestoneIndex: i, subIndex: j, title: safeTitle, body: String(text || '').trim(), points: [], heroImage: hero });
+        } catch (e: any) {
+          // Persist what we have so far and return a busy error
+          materialsByMilestone.push(items);
+          const partialContent = { ...(content || {}), materialsByMilestone };
+          await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: { ...partialContent, _generation: { inProgress: false, finishedAt: new Date().toISOString() } } } });
+          const msg = String(e?.message || 'Gagal membuat materi');
+          const is429 = e?.status === 429 || /rate|quota|exhaust/i.test(msg) || /429/.test(msg);
+          return NextResponse.json(
+            { ok: false, partial: true, error: is429 ? 'Server sedang sibuk. Coba lagi sebentar.' : 'Terjadi kesalahan saat membuat materi.', count: materialsByMilestone.reduce((a, b) => a + b.length, 0) },
+            { status: is429 ? 429 : 503 }
+          );
+        }
+      }
+      materialsByMilestone.push(items);
+    }
+  } catch (e: any) {
+    const msg = String(e?.message || 'Gagal menyiapkan materi');
+    const is429 = e?.status === 429 || /rate|quota|exhaust/i.test(msg) || /429/.test(msg);
+    const partialContent = { ...(content || {}), materialsByMilestone };
+    // Save partial progress if any
+    try { await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: { ...partialContent, _generation: { inProgress: false, finishedAt: new Date().toISOString() } } } }); } catch {}
+    return NextResponse.json(
+      { ok: false, partial: true, error: is429 ? 'Server sedang sibuk. Coba lagi sebentar.' : 'Terjadi kesalahan saat menyiapkan materi.', count: materialsByMilestone.reduce((a, b) => a + b.length, 0) },
+      { status: is429 ? 429 : 503 }
+    );
+  }
+
+  // Save back into content.materials
+  const newContent = { ...(content || {}), materialsByMilestone, _generation: { inProgress: false, finishedAt: new Date().toISOString() } };
+  await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: newContent } });
+
+  return NextResponse.json({ ok: true, count: materialsByMilestone.reduce((a, b) => a + b.length, 0) });
+}
