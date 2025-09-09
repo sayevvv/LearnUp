@@ -57,6 +57,7 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
   const [confirmUnpublishOpen, setConfirmUnpublishOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [confirmDeleteText, setConfirmDeleteText] = useState('');
+  const [nodeGenerating, setNodeGenerating] = useState<Record<string, boolean>>({});
   // Start-date disabled for saved roadmaps
 
   // Load roadmap + progress
@@ -711,6 +712,8 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
                       const mats: any[][] = Array.isArray((roadmap as any)?.content?.materialsByMilestone) ? (roadmap as any).content.materialsByMilestone : [];
                       const nodeMaterial = mats?.[mi]?.[ti];
                       const materialReady = !!nodeMaterial;
+                      const genKey = `${mi}:${ti}`;
+                      const isGenerating = !!nodeGenerating[genKey];
                       return (
                         <li key={ti} className="flex items-center gap-3 px-5 py-3 group">
                           {done ? (
@@ -720,17 +723,37 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
                           ) : (
                             <button
                               type="button"
+                              disabled={isGenerating}
                               onClick={async () => {
+                                if (isGenerating) return;
+                                setNodeGenerating(prev => ({ ...prev, [genKey]: true }));
                                 try {
                                   const res = await fetch(`/api/roadmaps/${roadmapId}/prepare-materials?m=${mi}&s=${ti}`, { method: 'POST' });
-                                  if (res.ok) {
+                                  if (!res.ok) {
+                                    let msg = 'Gagal generate';
+                                    try { const j = await res.json(); msg = j?.error || msg; } catch {}
+                                    show({ type: 'error', title: 'Gagal', message: msg });
+                                  } else {
                                     const r = await fetch(`/api/roadmaps/${roadmapId}`); if (r.ok) setRoadmap(await r.json());
                                   }
-                                } catch {}
+                                } catch (e: any) {
+                                  show({ type: 'error', title: 'Gagal', message: e?.message || 'Gagal generate' });
+                                } finally {
+                                  setNodeGenerating(prev => ({ ...prev, [genKey]: false }));
+                                }
                               }}
-                              className="h-5 w-5 inline-flex items-center justify-center rounded-full border border-slate-300 text-[10px] text-slate-500 hover:border-blue-400 hover:text-blue-600"
-                              title="Generate materi subbab ini"
-                            >+</button>
+                              className={`h-5 w-5 inline-flex items-center justify-center rounded-full border text-[10px] ${isGenerating ? 'border-blue-400 text-blue-500 cursor-wait' : 'border-slate-300 text-slate-500 hover:border-blue-400 hover:text-blue-600'} `}
+                              title={isGenerating ? 'Sedang membuat…' : 'Generate materi subbab ini'}
+                            >
+                              {isGenerating ? (
+                                <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                                </svg>
+                              ) : (
+                                '+'
+                              )}
+                            </button>
                           )}
                           {materialReady ? (
                             <Link href={`/dashboard/roadmaps/${(roadmap as any).id}/read?m=${mi}&s=${ti}`} className="flex-1 text-slate-800 dark:text-neutral-200 hover:underline truncate">{label}</Link>
