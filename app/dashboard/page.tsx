@@ -11,6 +11,7 @@ import GuardedLink from '@/components/GuardedLink';
 import LandingHeader from '@/components/LandingHeader';
 import Image from 'next/image';
 import { Suspense } from 'react';
+import DashboardHydrator from '@/components/DashboardHydrator';
 
 // Async section components (server) ------------------
 async function InProgressSection({ promise }: { promise: Promise<any[]> }) {
@@ -96,11 +97,9 @@ export default async function DashboardHomePage() {
   const session = (await getServerSession(authOptions as any)) as any;
   const s: any = session || {};
 
-  // Start data fetches (non-blocking for initial HTML of hero/header)
-  const inProgressPromise = loadInProgress(s.user?.id);
-  const recommendedPromise = loadRecommendedTopics();
-  const popularPromise = loadPopular();
-  const forYouPromise = loadForYou(s.user?.id);
+  // Only render shell + minimal popular/topics (fast query) then hydrate client side
+  const popularInitial = await loadPopular();
+  const topicsInitial = await loadRecommendedTopics();
 
   return (
     <div className="h-full overflow-y-auto bg-white dark:bg-black">
@@ -175,12 +174,7 @@ export default async function DashboardHomePage() {
         {/* Main feed */}
         <div>
           {/* In-Progress horizontal scroller */}
-          <Suspense fallback={<div className="h-32 animate-pulse rounded-xl bg-slate-100 dark:bg-neutral-900" />}> 
-            <InProgressSection promise={inProgressPromise} />
-          </Suspense>
-          <Suspense fallback={<div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{Array.from({length:6}).map((_,i)=>(<div key={i} className="h-40 rounded-xl bg-slate-100 dark:bg-neutral-900 animate-pulse"/>))}</div>}>
-            <TabsSection popularPromise={popularPromise} forYouPromise={forYouPromise} />
-          </Suspense>
+          <DashboardHydrator initialPopular={popularInitial} initialTopics={topicsInitial} />
         </div>
 
     {/* Right column */}
@@ -189,7 +183,7 @@ export default async function DashboardHomePage() {
             <h3 className="text-sm font-semibold text-slate-900">Recommended Topics</h3>
             <div className="mt-3 flex flex-wrap gap-2">
               {/* Recommended topics */}
-              <RecommendedTopics promise={recommendedPromise} />
+              <RecommendedTopics promise={Promise.resolve(topicsInitial)} />
             </div>
           </div>
 
