@@ -112,31 +112,7 @@ export default function DashboardSidebar() {
         )}
       </nav>
   <nav className={`mt-auto flex flex-col ${expanded ? 'items-stretch' : 'items-center'} gap-2 w-full`}>
-        {/* Profile avatar above Settings, stays in bottom group */}
-        {session && (
-          <Link
-            href="/dashboard/profile"
-            title="Profil"
-            className={`${expanded ? 'flex h-10 w-full items-center gap-3 rounded-lg px-3' : 'flex h-12 w-12 items-center justify-center rounded-lg'} transition-colors ${
-              pathname.startsWith('/dashboard/profile')
-                ? 'bg-slate-100 text-slate-900 dark:bg-[#0f0f0f] dark:text-white'
-                : 'text-slate-500 hover:bg-slate-100 dark:text-neutral-400 dark:hover:bg-[#0f0f0f] hover-text-glow hover-icon-glow'
-            }`}
-          >
-            {session.user?.image ? (
-              <Image
-                src={session.user.image}
-                alt={session.user.name || 'User'}
-                width={28}
-                height={28}
-                className="rounded-full"
-              />
-            ) : (
-              <UserIcon className="h-6 w-6" />
-            )}
-            {expanded && <span className="text-sm font-medium truncate">Profil</span>}
-          </Link>
-        )}
+  {/* Profile avatar moved to global header (see dashboard pages). Removed from sidebar for cleaner layout. */}
         {/* Hide Settings and Theme toggle on mobile; they move into Profile page */}
         <div className="hidden lg:block">
           <SidebarLink expanded={expanded} href="/dashboard/settings" icon={SettingsIcon} label="Settings" />

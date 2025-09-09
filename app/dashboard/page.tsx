@@ -112,9 +112,28 @@ export default async function DashboardHomePage() {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 py-3 flex items-center justify-between border-b border-slate-200/80 dark:border-slate-800/80 bg-white/80 dark:bg-black/60 backdrop-blur">
           <Link href="/dashboard" className="text-base font-semibold text-slate-900 dark:text-white">NextStep</Link>
           {s?.user?.id ? (
-            <Link href="/dashboard/profile" className="rounded-xl border px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:text-neutral-200 dark:border-white/10 dark:hover:bg-white/10">Profil</Link>
+            <Link
+              href="/dashboard/profile"
+              className="group inline-flex items-center gap-3 rounded-full border border-slate-200 bg-white/60 px-2 py-1 pr-3 text-sm text-slate-700 backdrop-blur hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-neutral-200 dark:hover:bg-white/10"
+            >
+              {/* Avatar */}
+              {s.user?.image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={s.user.image}
+                  alt={s.user.name || 'User'}
+                  className="h-8 w-8 rounded-full object-cover ring-1 ring-slate-200 dark:ring-white/10"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-white text-xs font-semibold dark:bg-white dark:text-black">
+                  {(s.user?.name || 'U').charAt(0).toUpperCase()}
+                </span>
+              )}
+              <span className="hidden md:inline-block max-w-[140px] truncate font-medium">{s.user?.name || 'Profil'}</span>
+            </Link>
           ) : (
-            <Link href="/login?callbackUrl=%2Fdashboard" className="rounded-xl bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800">Masuk</Link>
+            <Link href="/login?callbackUrl=%2Fdashboard" className="rounded-full bg-slate-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-800 dark:bg-white dark:text-black dark:hover:bg-neutral-200">Masuk</Link>
           )}
         </div>
       </div>
@@ -122,7 +141,7 @@ export default async function DashboardHomePage() {
       <div className="relative">
         <div
           className="h-48 md:h-60 w-full bg-center bg-cover"
-          style={{ backgroundImage: "url('/assets/fallback.jpg')" }}
+          style={{ backgroundImage: "url('/assets/login.jpg')" }}
         />
   <div className="absolute inset-0 bg-black/40" />
         <div className="absolute inset-0 flex items-center justify-center">
