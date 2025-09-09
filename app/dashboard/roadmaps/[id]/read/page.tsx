@@ -14,6 +14,8 @@ import ThirdPartyNoiseGuard from '@/components/ThirdPartyNoiseGuard';
 import PrefetchImage from '@/components/PrefetchImage';
 import ReaderRightTOC from '@/components/ReaderRightTOC';
 import FlashcardsInline from '@/components/FlashcardsInline';
+import dynamic from 'next/dynamic';
+const IncrementalMaterial = dynamic(() => import('@/components/IncrementalMaterial'), { ssr: false });
 import PostStudyRatePrompt from '@/components/PostStudyRatePrompt';
 
 export default async function ReadMaterialPage(props: any) {
@@ -114,100 +116,18 @@ export default async function ReadMaterialPage(props: any) {
 
         {/* Center: Main content (widest) */}
         <main className="min-w-0 xl:max-w-none xl:flex-1">
-        {!current ? (
-          <div className="text-slate-500">Materi belum disiapkan. Silakan kembali dan klik tombol Mulai Belajar.</div>
-        ) : (
-          <article className="mb-10" key={`${roadmap.id}-${m}-${s}`}>
-            {/* Dispatch current context to the assistant bubble */}
-            <script dangerouslySetInnerHTML={{ __html: `
-              (function(){
-                try{
-                  const ev = new CustomEvent('reader:context', { detail: ${JSON.stringify({ title: current?.title || '', body: current?.body || '', points: Array.isArray(current?.points) ? current.points : [], roadmapId: roadmap.id, m, s })} });
-                  window.dispatchEvent(ev);
-                }catch(e){}
-              })();
-            `}} />
-            <ReaderHeroImageServer seed={`${roadmap.id}-${m}-${s}`} />
-            {/* Preload next material hero image to avoid blank on fast navigation */}
-            <PrefetchImage src={prefetchNext} />
-            <h2 className="mt-6 text-lg font-bold text-slate-900">{current.title}</h2>
-            <div className="mt-2 whitespace-pre-wrap text-slate-700 leading-7">{current.body}</div>
-            {Array.isArray(current.points) && current.points.length ? (
-              <div className="mt-4">
-                {current.points.map((p: string, pi: number) => (
-                  <div key={pi} className="font-semibold text-slate-800 mt-3">{p}</div>
-                ))}
-              </div>
-            ) : null}
-            {/* Inline Flashcards, generated from current material context */}
-            <FlashcardsInline initialCtx={{ title: current?.title || '', body: current?.body || '', points: Array.isArray(current?.points) ? current.points : [], roadmapId: roadmap.id, m, s }} />
-            <div id="read-end-sentinel" className="mt-10 h-px" />
-            <div className="mt-10 flex items-center justify-between">
-              {/* Left: Previous material (if available) */}
-              {prev ? (
-                <Link
-                  href={`/dashboard/roadmaps/${roadmap.id}/read?m=${prev.m}&s=${prev.s}`}
-                  className="inline-flex items-center gap-2 text-blue-700 font-semibold"
-                >
-                  ← Materi Sebelumnya
-                </Link>
-              ) : (
-                <span />
-              )}
-              {/* Right: Next/Quiz/Back logic */}
-              {(() => {
-                // If not last in current milestone, go to next material within the same milestone
-        if (!isLastInMilestone && next) {
-                  return (
-                    <NextMaterialLink
-          href={`/dashboard/roadmaps/${roadmap.id}/read?m=${m}&s=${s + 1}`}
-                      roadmapId={roadmap.id}
-                      m={m}
-                      s={s}
-                      className="inline-flex items-center gap-2 text-blue-700 font-semibold"
-                    >
-                      Materi Selanjutnya →
-                    </NextMaterialLink>
-                  );
-                }
-                // Last in milestone: by default, go to quiz for this node
-                if (isLastInMilestone && !quizPassed) {
-                  return (
-                    <NextMaterialLink
-                      href={`/dashboard/roadmaps/${roadmap.id}/quiz?m=${m}`}
-                      roadmapId={roadmap.id}
-                      m={m}
-                      s={s}
-                      className="inline-flex items-center gap-2 text-blue-700 font-semibold"
-                    >
-                      Lanjut ke Kuis →
-                    </NextMaterialLink>
-                  );
-                }
-                // If quiz already passed, go to next milestone's first material if available
-                const hasNextMilestone = Array.isArray(byMilestone?.[m + 1]) && byMilestone[m + 1].length > 0;
-                if (isLastInMilestone && quizPassed && hasNextMilestone) {
-                  return (
-                    <NextMaterialLink
-                      href={`/dashboard/roadmaps/${roadmap.id}/read?m=${m + 1}&s=0`}
-                      roadmapId={roadmap.id}
-                      m={m}
-                      s={s}
-                      className="inline-flex items-center gap-2 text-blue-700 font-semibold"
-                    >
-                      Lanjut ke Tahap Berikutnya →
-                    </NextMaterialLink>
-                  );
-                }
-                // Otherwise, back to roadmap
-                return (
-                  <Link href={`/dashboard/roadmaps/${roadmap.id}`} className="inline-flex items-center gap-2 text-slate-700 font-semibold">
-                    Kembali ke Roadmap
-                  </Link>
-                );
-              })()}
-            </div>
-          </article>
+        {(
+          <IncrementalMaterial
+            roadmapId={roadmap.id}
+            m={m}
+            s={s}
+            initialMaterial={current || null}
+            expectedSubs={Array.isArray(content?.milestones) && content.milestones[m]?.subbab ? content.milestones[m].subbab.length : (Array.isArray(content?.milestones) && content.milestones[m]?.sub_tasks ? content.milestones[m].sub_tasks.length : 0)}
+            byMilestone={byMilestone}
+            quizPassed={quizPassed}
+            hasNextMilestone={Array.isArray(byMilestone?.[m + 1]) && byMilestone[m + 1].length > 0}
+            milestoneTopic={Array.isArray(content?.milestones) && content.milestones[m]?.topic ? content.milestones[m].topic : ''}
+          />
         )}
         </main>
 

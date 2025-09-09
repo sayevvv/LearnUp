@@ -708,14 +708,38 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
                       const key = `m-${mi}-t-${ti}`;
                       const done = !!progress?.completedTasks?.[key];
                       const label = typeof task === 'string' ? task : task?.task;
+                      const mats: any[][] = Array.isArray((roadmap as any)?.content?.materialsByMilestone) ? (roadmap as any).content.materialsByMilestone : [];
+                      const nodeMaterial = mats?.[mi]?.[ti];
+                      const materialReady = !!nodeMaterial;
                       return (
-                        <li key={ti} className="flex items-center gap-3 px-5 py-3">
+                        <li key={ti} className="flex items-center gap-3 px-5 py-3 group">
                           {done ? (
                             <CheckCircle className="h-5 w-5 text-green-600" aria-label="Selesai" />
+                          ) : materialReady ? (
+                            <span className="h-5 w-5 inline-flex items-center justify-center rounded-full border border-blue-400 text-blue-500 text-[10px] font-bold" title="Siap dipelajari">✓</span>
                           ) : (
-                            <span className="h-5 w-5 inline-block rounded-full border border-slate-300" aria-hidden />
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  const res = await fetch(`/api/roadmaps/${roadmapId}/prepare-materials?m=${mi}&s=${ti}`, { method: 'POST' });
+                                  if (res.ok) {
+                                    const r = await fetch(`/api/roadmaps/${roadmapId}`); if (r.ok) setRoadmap(await r.json());
+                                  }
+                                } catch {}
+                              }}
+                              className="h-5 w-5 inline-flex items-center justify-center rounded-full border border-slate-300 text-[10px] text-slate-500 hover:border-blue-400 hover:text-blue-600"
+                              title="Generate materi subbab ini"
+                            >+</button>
                           )}
-                          <Link href={`/dashboard/roadmaps/${(roadmap as any).id}/read?m=${mi}&s=${ti}`} className="text-slate-800 dark:text-neutral-200 hover:underline">{label}</Link>
+                          {materialReady ? (
+                            <Link href={`/dashboard/roadmaps/${(roadmap as any).id}/read?m=${mi}&s=${ti}`} className="flex-1 text-slate-800 dark:text-neutral-200 hover:underline truncate">{label}</Link>
+                          ) : (
+                            <span className="flex-1 text-slate-500 dark:text-neutral-500 truncate">{label}</span>
+                          )}
+                          {!materialReady && (
+                            <span className="text-[10px] uppercase tracking-wide bg-slate-100 dark:bg-[#1a1a1a] text-slate-500 dark:text-neutral-400 px-2 py-0.5 rounded">Belum</span>
+                          )}
                         </li>
                       );
                     })}
