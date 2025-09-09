@@ -59,8 +59,8 @@ export default function RoadmapCard({
     containerPad = compact ? 'pb-12' : 'pb-16';
   }
   return (
-    <Link href={href} className={`relative block h-full rounded-2xl border border-slate-200 hover:border-blue-300 transition-all bg-white dark:bg-[#0b0b0b] p-4 ${containerPad}`}>
-      <div className="flex items-start justify-between min-h-[48px]">
+    <Link href={href} className={`relative block h-full rounded-2xl border border-slate-200 hover:border-blue-300 transition-colors bg-white dark:bg-[#0b0b0b] p-4 ${containerPad}`}>
+      <div className="flex items-start justify-between min-h-[54px]">
         <div className="min-w-0">
           <h3 className="text-[15px] sm:text-base font-semibold text-slate-900 truncate">{item.title}</h3>
           <div className="h-6">
@@ -83,7 +83,7 @@ export default function RoadmapCard({
             ) : null}
           </div>
           {!hideInlineTopics && !bottomMetaAlign && Array.isArray(item.topics) && item.topics.length > 0 ? (
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div className="mt-2 flex flex-wrap gap-2 min-h-[26px]">
               {item.topics.slice(0, 3).map((t) => (
                 <span
                   key={`${item.id}:${t.slug}`}
@@ -104,7 +104,7 @@ export default function RoadmapCard({
       </div>
       {/* Middle meta row (weeks + ratings) unless we align at bottom */}
       {!bottomMetaAlign && (
-        <div className={`mt-3 flex items-center gap-4 text-sm text-slate-600${compact ? ' min-h-[20px]' : ''}`}>
+  <div className={`mt-3 flex items-center gap-4 text-sm text-slate-600 min-h-[20px]`}>
           {weeks !== null ? (
             <span className="inline-flex items-center gap-1">
               <CalendarIcon className="h-4 w-4" />

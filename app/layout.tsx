@@ -20,7 +20,7 @@ const crimsonPro = Crimson_Pro({
 });
 
 export const metadata: Metadata = {
-  title: "NextStep - AI Self-Paced Learning Roadmap",
+  title: "LearnUp - Rencana Belajar Personal",
   description: "Buat jalur belajar terstruktur dengan AI",
   icons: {
   // Add version query to bust caches across deploys
@@ -39,6 +39,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <head>
   <link rel="preload" as="image" href="/assets/login.jpg" />
+  <link rel="preload" as="image" href="/assets/login.webp" type="image/webp" />
         <script
           dangerouslySetInnerHTML={{
             __html: `(() => { try { const saved = localStorage.getItem('theme'); const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches; const enableDark = saved ? saved === 'dark' : prefersDark; const el = document.documentElement; if (enableDark) el.classList.add('dark'); else el.classList.remove('dark'); } catch {} })();`,
