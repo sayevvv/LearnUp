@@ -7,17 +7,7 @@ type Item = string;
 // Menyimpan pasangan yang dibuat oleh pengguna
 type Matches = Record<Item, Item | null>; 
 
-// --- Pasangan Data untuk Game ---
-const INITIAL_PAIRS: Record<Item, Item> = {
-  'Jawa Barat': 'Bandung',
-  'Jawa Timur': 'Surabaya',
-  'Jawa Tengah': 'Semarang',
-  'Sumatera Utara': 'Medan',
-  'Sulawesi Selatan': 'Makassar',
-  'Kalimantan Timur': 'Samarinda',
-  'Papua': 'Jayapura',
-  'Bali': 'Denpasar',
-};
+// (Initial static pairs removed – pairs must now datang dari props)
 
 // --- Palet Warna untuk Menyorot Pasangan ---
 const HIGHLIGHT_COLORS = [
@@ -37,7 +27,7 @@ const shuffleArray = <T,>(array: T[]): T[] => {
 };
 
 // --- Komponen Utama Aplikasi ---
-export default function MatchingGame({ pairs }: { pairs?: Record<Item, Item> }) {
+export default function MatchingGame({ pairs }: { pairs: Record<Item, Item> }) {
   // --- State Management ---
   const [leftItems, setLeftItems] = useState<Item[]>([]);
   const [rightItems, setRightItems] = useState<Item[]>([]);
@@ -47,7 +37,7 @@ export default function MatchingGame({ pairs }: { pairs?: Record<Item, Item> }) 
   const [results, setResults] = useState<Record<Item, 'correct' | 'incorrect'>>({}); // Menyimpan hasil koreksi
 
   // --- Memoization untuk Efisiensi ---
-  const solution = useMemo(() => pairs || INITIAL_PAIRS, [pairs]);
+  const solution = useMemo(() => pairs, [pairs]);
   const totalPairs = useMemo(() => Object.keys(solution).length, [solution]);
   const pairedCount = useMemo(() => Object.keys(matches).length, [matches]);
   const allItemsPaired = useMemo(() => pairedCount === totalPairs, [pairedCount, totalPairs]);
@@ -142,12 +132,21 @@ export default function MatchingGame({ pairs }: { pairs?: Record<Item, Item> }) 
   };
 
   // --- Render Komponen ---
+  // Fallback jika tidak ada pasangan cukup
+  if (!pairs || Object.keys(pairs).length < 2) {
+    return (
+      <div className="bg-white rounded-xl border border-slate-200 p-6 text-center text-sm text-slate-600">
+        Tidak ada data cukup untuk game mencocokkan.
+      </div>
+    );
+  }
+
   return (
     <div className="bg-white min-h-screen flex flex-col items-center justify-center font-sans p-4">
       <div className="w-full max-w-4xl mx-auto">
         <header className="bg-white rounded-2xl border border-slate-200 p-6 md:p-8 text-center">
           <h1 className="text-3xl md:text-4xl font-bold text-slate-800">Game Mencocokkan</h1>
-          <p className="text-slate-600 mt-2">Pasangkan Provinsi dengan Ibu Kotanya!</p>
+          <p className="text-slate-600 mt-2">Pasangkan istilah dengan penjelasan yang tepat.</p>
         </header>
 
         {/* --- Area Status & Aksi --- */}

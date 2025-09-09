@@ -57,11 +57,53 @@ export function getCachedMaterial(topicKey: string): any | null {
 
 // Example helper to derive matching pairs from material (placeholder)
 export function deriveMatchingPairs(material: any): Record<string,string> {
-  // TODO: implement real extraction: e.g. take key-value glossary from subsection
-  if (!material || !material.glossary) return {};
   const out: Record<string,string> = {};
-  for (const g of material.glossary.slice(0,8)) {
-    if (g.term && g.def) out[g.term] = g.def;
+  if (!material) return out;
+
+  // 1. Prioritaskan glossary langsung jika tersedia
+  if (Array.isArray(material.glossary)) {
+    for (const g of material.glossary.slice(0, 12)) {
+      const term = (g?.term || '').trim();
+      const def = (g?.def || '').trim();
+      if (term && def && !out[term]) out[term] = def.slice(0, 120);
+    }
   }
+
+  // 2. Jika tidak ada glossary, coba ekstrak dari points (bullet list) format "Istilah: Deskripsi"
+  if (Object.keys(out).length < 4 && Array.isArray(material.points)) {
+    for (const p of material.points) {
+      if (typeof p !== 'string') continue;
+      const parts = p.split(/[:\-–]\s+/); // pisah di titik dua atau dash
+      if (parts.length >= 2) {
+        const term = parts[0].trim();
+        const def = parts.slice(1).join(' - ').trim();
+        if (term && def && !out[term]) out[term] = def.slice(0, 120);
+      }
+      if (Object.keys(out).length >= 12) break;
+    }
+  }
+
+  // 3. Jika masih kurang, coba dari body: cari pola "Istilah adalah ..." atau "Istilah merupakan ..."
+  if (Object.keys(out).length < 4 && typeof material.body === 'string') {
+    const sentences = material.body.split(/(?<=[.!?])\s+/).slice(0, 40); // batasi
+    for (const s of sentences) {
+      const m = s.match(/^([A-Z0-9][A-Za-z0-9 _-]{2,40})\s+(adalah|merupakan)\s+(.{10,160})$/i);
+      if (m) {
+        const term = m[1].trim();
+        const def = m[3].trim();
+        if (term && def && !out[term]) out[term] = def.slice(0, 120);
+      }
+      if (Object.keys(out).length >= 8) break;
+    }
+  }
+
+  // Normalisasi: jika definisi terlalu pendek / sama dengan term, hapus
+  for (const k of Object.keys(out)) {
+    const v = out[k];
+    if (!v || v.length < 4 || v.toLowerCase() === k.toLowerCase()) delete out[k];
+  }
+
+  // Minimum 2 pair agar game valid
+  if (Object.keys(out).length < 2) return {};
   return out;
 }
