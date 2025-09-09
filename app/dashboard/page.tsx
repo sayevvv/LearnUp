@@ -10,6 +10,7 @@ import DeveloperChoiceSidebar from '../../components/DeveloperChoiceSidebar';
 import DashboardTabs from '@/components/DashboardTabs';
 import GuardedLink from '@/components/GuardedLink';
 import LandingHeader from '@/components/LandingHeader';
+import Image from 'next/image';
 
 export default async function DashboardHomePage() {
   const session = (await getServerSession(authOptions as any)) as any;
@@ -139,11 +140,20 @@ export default async function DashboardHomePage() {
       </div>
       {/* Hero CTA */}
       <div className="relative">
-        <div
-          className="h-48 md:h-60 w-full bg-center bg-cover"
-          style={{ backgroundImage: "url('/assets/login.jpg')" }}
-        />
-  <div className="absolute inset-0 bg-black/40" />
+        {/* Hero image using next/image for optimization & priority to improve LCP */}
+        <div className="relative h-48 md:h-60 w-full overflow-hidden">
+          <Image
+            src="/assets/login.jpg"
+            alt="Hero"
+            fill
+            priority
+            sizes="(max-width: 768px) 100vw, 100vw"
+            className="object-cover"
+            placeholder="blur"
+            blurDataURL="/assets/placeholder_edit.png"
+          />
+          <div className="absolute inset-0 bg-black/40" />
+        </div>
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="max-w-6xl mx-auto w-full px-6">
             <div className="text-white text-center">

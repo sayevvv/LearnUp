@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 // Impor font baru dari Google Fonts
 import { Space_Grotesk, Crimson_Pro } from "next/font/google";
 import "./globals.css";
+import React from 'react';
 import { Providers } from "./providers";
 
 // Konfigurasi font Space Grotesk untuk teks utama (sans-serif)
@@ -37,6 +38,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+  <link rel="preload" as="image" href="/assets/login.jpg" />
         <script
           dangerouslySetInnerHTML={{
             __html: `(() => { try { const saved = localStorage.getItem('theme'); const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches; const enableDark = saved ? saved === 'dark' : prefersDark; const el = document.documentElement; if (enableDark) el.classList.add('dark'); else el.classList.remove('dark'); } catch {} })();`,
