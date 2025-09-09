@@ -16,6 +16,10 @@ export async function POST(_req: NextRequest, ctx: any) {
   const url = new URL(_req.url);
   const force = url.searchParams.get('force') === '1';
   const reset = url.searchParams.get('reset') === '1';
+  // Optional single-node generation params
+  const mParam = url.searchParams.get('m'); // milestone index
+  const sParam = url.searchParams.get('s'); // sub-index within milestone
+  const singleMode = mParam !== null && sParam !== null;
 
   // Fetch roadmap owned by the user
   const roadmap = await (prisma as any).roadmap.findFirst({ where: { id, userId: session.user.id } });
@@ -64,8 +68,8 @@ export async function POST(_req: NextRequest, ctx: any) {
     return NextResponse.json({ error: 'Terdapat proses generate materi lain yang masih berjalan. Selesaikan atau tunggu hingga selesai sebelum memulai yang baru.' }, { status: 409 });
   }
 
-  // If already prepared and complete, return unless forcing regeneration
-  if (!force && isMaterialsComplete(content)) {
+  // If already prepared and complete (only check for full generation mode), return unless forcing regeneration
+  if (!singleMode && !force && isMaterialsComplete(content)) {
     return NextResponse.json({ ok: true, alreadyPrepared: true });
   }
 
@@ -97,21 +101,86 @@ Instruksi:
     inputVariables: ["topic", "subbab"],
   });
 
-  // Optionally clear progress and materials when resetting
-  try {
-    if (reset) {
-      try {
-        await (prisma as any).roadmapProgress.upsert({
-          where: { roadmapId: id },
-          update: { completedTasks: {}, percent: 0 },
-          create: { roadmapId: id, completedTasks: {}, percent: 0 },
-        });
-      } catch {}
+  // Optionally clear progress and materials when resetting (only for full mode)
+  if (!singleMode) {
+    try {
+      if (reset) {
+        try {
+          await (prisma as any).roadmapProgress.upsert({
+            where: { roadmapId: id },
+            update: { completedTasks: {}, percent: 0 },
+            create: { roadmapId: id, completedTasks: {}, percent: 0 },
+          });
+        } catch {}
+      }
+      const base = reset ? { ...(content || {}), materialsByMilestone: [] } : (content || {});
+      const mark = { ...base, _generation: { inProgress: true, startedAt: new Date().toISOString() } };
+      await (prisma as any).roadmap.update({ where: { id: (roadmap as any).id }, data: { content: mark } });
+    } catch {}
+  }
+
+  // SINGLE NODE MODE IMPLEMENTATION
+  if (singleMode) {
+    const mi = Math.max(0, Math.min(milestones.length - 1, Number(mParam) || 0));
+    const milestone = milestones[mi];
+    if (!milestone) return NextResponse.json({ error: 'Milestone tidak ditemukan' }, { status: 404 });
+    const subs: string[] = Array.isArray(milestone.subbab)
+      ? milestone.subbab
+      : Array.isArray(milestone.sub_tasks)
+        ? (milestone.sub_tasks as any[]).map((t) => (typeof t === 'string' ? t : t?.task)).filter(Boolean)
+        : [];
+    if (!subs.length) return NextResponse.json({ error: 'Milestone belum punya subbab' }, { status: 400 });
+    const si = Math.max(0, Math.min(subs.length - 1, Number(sParam) || 0));
+    const subTitle = subs[si];
+    if (!subTitle) return NextResponse.json({ error: 'Subbab tidak ditemukan' }, { status: 404 });
+
+    const existingMats: any[][] = Array.isArray((content as any).materialsByMilestone) ? (content as any).materialsByMilestone : [];
+    const currentList: any[] = Array.isArray(existingMats[mi]) ? existingMats[mi] : [];
+    const already = currentList.find((it) => it?.subIndex === si);
+    if (already && !force) {
+      return NextResponse.json({ ok: true, skipped: true, milestoneIndex: mi, subIndex: si });
     }
-    const base = reset ? { ...(content || {}), materialsByMilestone: [] } : (content || {});
-    const mark = { ...base, _generation: { inProgress: true, startedAt: new Date().toISOString() } };
-    await (prisma as any).roadmap.update({ where: { id: (roadmap as any).id }, data: { content: mark } });
-  } catch {}
+
+    // Acquire short-term lock to avoid rapid duplicate calls
+    try {
+      const lockMark = { ...(content || {}), _generation: { inProgress: true, startedAt: new Date().toISOString(), single: true } };
+      await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: lockMark } });
+    } catch {}
+
+    const pTxt = await prompt.format({ topic: `${milestone.topic} — ${subTitle}`, subbab: `- ${subTitle}` });
+    let item: any = null;
+    try {
+      const res = await model.invoke([{ role: 'user', content: pTxt }] as any);
+      let text = (res as any)?.content?.[0]?.text || (res as any)?.content || '';
+      text = String(text).slice(0, 5000);
+      const hero = `https://source.unsplash.com/1200x500/?${encodeURIComponent(subTitle)}`;
+      const safeTitle = String(subTitle || '').slice(0, 200);
+      item = { milestoneIndex: mi, subIndex: si, title: safeTitle, body: String(text || '').trim(), points: [], heroImage: hero };
+    } catch (e: any) {
+      // release lock
+      try {
+        const release = { ...(content || {}), _generation: { inProgress: false, finishedAt: new Date().toISOString(), single: true } };
+        await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: release } });
+      } catch {}
+      const msg = String(e?.message || 'Gagal membuat materi');
+      const is429 = /429|rate|quota|exhaust/i.test(msg);
+      return NextResponse.json({ ok: false, error: is429 ? 'Server sibuk. Coba lagi.' : msg }, { status: is429 ? 429 : 500 });
+    }
+
+    // Persist item (replace or insert at correct index)
+    const newMats = [...existingMats];
+    const ml = Array.isArray(newMats[mi]) ? [...newMats[mi]] : [];
+    const replacedIdx = ml.findIndex((x) => x?.subIndex === si);
+    if (replacedIdx >= 0) ml[replacedIdx] = item; else {
+      // keep order by subIndex
+      ml.push(item);
+      ml.sort((a, b) => (a.subIndex || 0) - (b.subIndex || 0));
+    }
+    newMats[mi] = ml;
+    const newContent = { ...(content || {}), materialsByMilestone: newMats, _generation: { inProgress: false, finishedAt: new Date().toISOString(), single: true } };
+    await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: newContent } });
+    return NextResponse.json({ ok: true, mode: 'single', milestoneIndex: mi, subIndex: si, item });
+  }
 
   const materialsByMilestone: any[][] = [];
   try {
