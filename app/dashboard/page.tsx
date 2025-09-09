@@ -93,7 +93,7 @@ export default async function DashboardHomePage() {
         <div className="pointer-events-none absolute inset-0 [mask-image:radial-gradient(circle_at_center,white,transparent)] bg-[conic-gradient(at_30%_40%,theme(colors.blue.500),theme(colors.sky.400),theme(colors.orange.400),theme(colors.blue.500))] opacity-30 dark:opacity-25" aria-hidden />
         <div className="mx-auto max-w-5xl px-6 py-14 sm:py-16 text-center relative">
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Buat <span className="bg-gradient-to-r from-sky-500 via-blue-500 to-orange-400 bg-clip-text text-transparent">Rencana Belajarmu Sendiri</span>
+            Buat <span className="bg-gradient-to-r from-sky-500 via-blue-500 to-orange-400 bg-clip-text text-transparent">Rencana Belajar</span>mu Sendiri
           </h1>
           <p className="mt-3 text-sm md:text-base text-slate-600 dark:text-neutral-300 max-w-2xl mx-auto">Mulai perjalanan belajar terstruktur yang disesuaikan dengan tujuanmu, dan kembangkan skill secara fokus.</p>
           <div className="mt-6 flex justify-center">
