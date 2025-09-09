@@ -3,28 +3,11 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/auth.config';
 import { prisma } from '@/lib/prisma';
 import Link from 'next/link';
-import { ChevronRight } from 'lucide-react';
-import InProgressScroller from '@/components/InProgressScroller';
 import DeveloperChoiceSidebar from '../../components/DeveloperChoiceSidebar';
-import DashboardTabs from '@/components/DashboardTabs';
 import GuardedLink from '@/components/GuardedLink';
-import LandingHeader from '@/components/LandingHeader';
-import Image from 'next/image';
-import { Suspense } from 'react';
 import DashboardHydrator from '@/components/DashboardHydrator';
 
-// Async section components (server) ------------------
-async function InProgressSection({ promise }: { promise: Promise<any[]> }) {
-  const data = await promise;
-  if (!data?.length) return null;
-  return <InProgressScroller items={data as any} />;
-}
-
-async function TabsSection({ popularPromise, forYouPromise }: { popularPromise: Promise<any[]>; forYouPromise: Promise<any[]> }) {
-  const [popular, forYou] = await Promise.all([popularPromise, forYouPromise]);
-  return <DashboardTabs popular={popular} forYou={forYou} />;
-}
-
+// Lightweight recommended topics renderer
 async function RecommendedTopics({ promise }: { promise: Promise<any[]> }) {
   const topics = await promise;
   if (!topics?.length) return <span className="text-xs text-slate-500">Belum ada</span>;
@@ -40,19 +23,6 @@ async function RecommendedTopics({ promise }: { promise: Promise<any[]> }) {
 }
 
 // --- Data loaders (can be cached / streamed) ---
-async function loadInProgress(userId?: string) {
-  if (!userId) return [];
-  try {
-    const items = await (prisma as any).roadmap.findMany({
-      where: { userId, progress: { is: { percent: { gt: 0, lt: 100 } } } },
-      orderBy: { progress: { updatedAt: 'desc' } },
-      take: 8,
-      select: { id: true, title: true, slug: true, published: true, user: { select: { name: true, image: true } }, progress: { select: { percent: true, updatedAt: true } } },
-    });
-    return items;
-  } catch { return []; }
-}
-
 async function loadRecommendedTopics() {
   try {
     const rows = await (prisma as any).roadmapTopic.groupBy({ by: ['topicId'], _count: { topicId: true }, orderBy: { _count: { topicId: 'desc' } }, take: 8 });
@@ -71,22 +41,6 @@ async function loadPopular() {
       take: 12,
       select: { id: true, title: true, slug: true, verified: true, user: { select: { name: true, image: true } } },
     });
-    return items;
-  } catch { return []; }
-}
-
-async function loadForYou(userId?: string) {
-  if (!userId) return [];
-  try {
-    const my = await (prisma as any).roadmap.findMany({ where: { userId }, select: { id: true } });
-    const myIds = my.map((m: any) => m.id);
-    if (!myIds.length) return [];
-    const myTopics = await (prisma as any).roadmapTopic.findMany({ where: { roadmapId: { in: myIds } }, select: { topicId: true } });
-    const topicIds = Array.from(new Set(myTopics.map((t: any) => t.topicId)));
-    if (!topicIds.length) return [];
-    const candidates = await (prisma as any).roadmapTopic.findMany({ where: { topicId: { in: topicIds } }, select: { roadmapId: true } });
-    const roadmapIds = Array.from(new Set(candidates.map((c: any) => c.roadmapId)));
-    const items = await (prisma as any).roadmap.findMany({ where: { id: { in: roadmapIds }, published: true }, select: { id: true, title: true, slug: true, verified: true, user: { select: { name: true, image: true } } }, take: 12 });
     return items;
   } catch { return []; }
 }
@@ -133,41 +87,23 @@ export default async function DashboardHomePage() {
           )}
         </div>
       </div>
-      {/* Hero CTA */}
-      <div className="relative">
-        {/* Hero image using next/image for optimization & priority to improve LCP */}
-        <div className="relative h-48 md:h-60 w-full overflow-hidden">
-          <Image
-            src="/assets/login.jpg"
-            alt="Hero"
-            fill
-            priority
-            sizes="(max-width: 768px) 100vw, 100vw"
-            className="object-cover"
-            placeholder="blur"
-            blurDataURL="/assets/placeholder_edit.png"
-          />
-          <div className="absolute inset-0 bg-black/40" />
-        </div>
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="max-w-6xl mx-auto w-full px-6">
-            <div className="text-white text-center">
-              <h1 className="text-2xl md:text-3xl font-bold">Buat roadmap-mu sendiri</h1>
-              <p className="mt-1 text-sm md:text-base text-white/90">Mulai perjalanan belajar sesuai tujuanmu.</p>
-              <div className="mt-4">
-                <GuardedLink href="/dashboard/new" className="group relative inline-flex items-center justify-center">
-                  {/* Glow/backlight */}
-                  <span className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-blue-500 via-violet-500 to-fuchsia-500 opacity-60 blur-md transition-all duration-300 group-hover:opacity-80 group-hover:blur-lg group-active:opacity-100 group-active:blur-xl" aria-hidden />
-                  {/* Button body */}
-                  <span className="relative rounded-xl bg-white/95 px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-sm ring-1 ring-white/60 transition-transform duration-150 group-hover:scale-[1.02] group-active:scale-95 dark:bg-white/10 dark:text-white dark:ring-white/20">
-                    Buat Roadmap
-                  </span>
-                </GuardedLink>
-              </div>
-            </div>
+      {/* Hero (lightweight, no large background image) */}
+      <section className="relative overflow-hidden">
+        {/* Decorative gradient blobs (pure CSS, no network) */}
+        <div className="pointer-events-none absolute inset-0 [mask-image:radial-gradient(circle_at_center,white,transparent)] bg-[conic-gradient(at_30%_40%,theme(colors.blue.500),theme(colors.sky.400),theme(colors.orange.400),theme(colors.blue.500))] opacity-30 dark:opacity-25" aria-hidden />
+        <div className="mx-auto max-w-5xl px-6 py-14 sm:py-16 text-center relative">
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-900 dark:text-white">
+            Buat <span className="bg-gradient-to-r from-sky-500 via-blue-500 to-orange-400 bg-clip-text text-transparent">Rencana Belajarmu Sendiri</span>
+          </h1>
+          <p className="mt-3 text-sm md:text-base text-slate-600 dark:text-neutral-300 max-w-2xl mx-auto">Mulai perjalanan belajar terstruktur yang disesuaikan dengan tujuanmu, dan kembangkan skill secara fokus.</p>
+          <div className="mt-6 flex justify-center">
+            <GuardedLink href="/dashboard/new" className="group relative inline-flex items-center justify-center">
+              <span className="absolute -inset-0.5 rounded-xl bg-gradient-to-r from-sky-500 via-indigo-500 to-orange-400 opacity-70 blur-sm transition-all duration-300 group-hover:opacity-90 group-hover:blur-md" aria-hidden />
+              <span className="relative inline-flex items-center gap-2 rounded-lg bg-white/90 px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-sm ring-1 ring-slate-200 transition-colors group-hover:bg-white dark:bg-white/5 dark:text-white dark:ring-white/10">Buat Roadmap</span>
+            </GuardedLink>
           </div>
         </div>
-      </div>
+      </section>
 
   <div className="px-4 sm:px-6 py-6">
         <div className="max-w-7xl mx-auto w-full grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6">
