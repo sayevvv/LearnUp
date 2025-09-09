@@ -4,107 +4,103 @@ import { authOptions } from '@/auth.config';
 import { prisma } from '@/lib/prisma';
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
-import RoadmapCard from '@/components/RoadmapCard';
 import InProgressScroller from '@/components/InProgressScroller';
 import DeveloperChoiceSidebar from '../../components/DeveloperChoiceSidebar';
 import DashboardTabs from '@/components/DashboardTabs';
 import GuardedLink from '@/components/GuardedLink';
 import LandingHeader from '@/components/LandingHeader';
 import Image from 'next/image';
+import { Suspense } from 'react';
+
+// Async section components (server) ------------------
+async function InProgressSection({ promise }: { promise: Promise<any[]> }) {
+  const data = await promise;
+  if (!data?.length) return null;
+  return <InProgressScroller items={data as any} />;
+}
+
+async function TabsSection({ popularPromise, forYouPromise }: { popularPromise: Promise<any[]>; forYouPromise: Promise<any[]> }) {
+  const [popular, forYou] = await Promise.all([popularPromise, forYouPromise]);
+  return <DashboardTabs popular={popular} forYou={forYou} />;
+}
+
+async function RecommendedTopics({ promise }: { promise: Promise<any[]> }) {
+  const topics = await promise;
+  if (!topics?.length) return <span className="text-xs text-slate-500">Belum ada</span>;
+  return (
+    <>
+      {topics.map((t: any) => (
+        <Link key={t.id} href={`/dashboard/browse?topic=${encodeURIComponent(t.slug)}`} className="px-2 py-1 rounded-full border border-slate-200 bg-slate-50 text-xs text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-[#0f0f0f] dark:text-neutral-200 dark:hover:bg-[#1a1a1a]">
+          {t.name}
+        </Link>
+      ))}
+    </>
+  );
+}
+
+// --- Data loaders (can be cached / streamed) ---
+async function loadInProgress(userId?: string) {
+  if (!userId) return [];
+  try {
+    const items = await (prisma as any).roadmap.findMany({
+      where: { userId, progress: { is: { percent: { gt: 0, lt: 100 } } } },
+      orderBy: { progress: { updatedAt: 'desc' } },
+      take: 8,
+      select: { id: true, title: true, slug: true, published: true, user: { select: { name: true, image: true } }, progress: { select: { percent: true, updatedAt: true } } },
+    });
+    return items;
+  } catch { return []; }
+}
+
+async function loadRecommendedTopics() {
+  try {
+    const rows = await (prisma as any).roadmapTopic.groupBy({ by: ['topicId'], _count: { topicId: true }, orderBy: { _count: { topicId: 'desc' } }, take: 8 });
+    const ids = rows.map((r: any) => r.topicId);
+    const topics = await (prisma as any).topic.findMany({ where: { id: { in: ids } } });
+    const byId: Record<string, any> = Object.fromEntries((topics as any).map((t: any) => [t.id, t]));
+    return rows.map((r: any) => byId[r.topicId]).filter(Boolean);
+  } catch { return []; }
+}
+
+async function loadPopular() {
+  try {
+    const items = await (prisma as any).roadmap.findMany({
+      where: { published: true },
+      orderBy: [{ createdAt: 'desc' }],
+      take: 12,
+      select: { id: true, title: true, slug: true, verified: true, user: { select: { name: true, image: true } } },
+    });
+    return items;
+  } catch { return []; }
+}
+
+async function loadForYou(userId?: string) {
+  if (!userId) return [];
+  try {
+    const my = await (prisma as any).roadmap.findMany({ where: { userId }, select: { id: true } });
+    const myIds = my.map((m: any) => m.id);
+    if (!myIds.length) return [];
+    const myTopics = await (prisma as any).roadmapTopic.findMany({ where: { roadmapId: { in: myIds } }, select: { topicId: true } });
+    const topicIds = Array.from(new Set(myTopics.map((t: any) => t.topicId)));
+    if (!topicIds.length) return [];
+    const candidates = await (prisma as any).roadmapTopic.findMany({ where: { topicId: { in: topicIds } }, select: { roadmapId: true } });
+    const roadmapIds = Array.from(new Set(candidates.map((c: any) => c.roadmapId)));
+    const items = await (prisma as any).roadmap.findMany({ where: { id: { in: roadmapIds }, published: true }, select: { id: true, title: true, slug: true, verified: true, user: { select: { name: true, image: true } } }, take: 12 });
+    return items;
+  } catch { return []; }
+}
+
+export const revalidate = 60; // cache static-ish parts for 1 minute
 
 export default async function DashboardHomePage() {
   const session = (await getServerSession(authOptions as any)) as any;
   const s: any = session || {};
-  // Guests can browse popular and for-you (limited). Some sections may be empty.
 
-  // Simplified flow: no redirect here. Users may arrive from onboarding after login.
-
-  // Query sections: In-Progress, Recommended Topics, Popular, For You
-  const [inProgress, recommendedTopics, popular, forYou] = await Promise.all([
-    // Roadmaps currently being learned by the user (0% < progress < 100%)
-    (async () => {
-      try {
-        const items = await (prisma as any).roadmap.findMany({
-          where: { userId: s.user.id, progress: { is: { percent: { gt: 0, lt: 100 } } } },
-          orderBy: { progress: { updatedAt: 'desc' } },
-          take: 12,
-          select: { id: true, title: true, slug: true, published: true, user: { select: { name: true, image: true } }, progress: { select: { percent: true, updatedAt: true } } },
-        });
-        const ids = items.map((i: any) => i.id);
-        const topicRows = ids.length ? await (prisma as any).roadmapTopic.findMany({ where: { roadmapId: { in: ids } }, include: { topic: true }, orderBy: [{ isPrimary: 'desc' }, { confidence: 'desc' }] }) : [];
-        const byRoadmap: Record<string, any[]> = {};
-        for (const r of topicRows) {
-          (byRoadmap[r.roadmapId] ||= []).push({ slug: r.topic.slug, name: r.topic.name, isPrimary: !!r.isPrimary });
-        }
-        const aggRows = ids.length ? await (prisma as any).roadmapAggregates.findMany({ where: { roadmapId: { in: ids } } }) : [];
-        const aggById: Record<string, { avgStars?: number; ratingsCount?: number }> = Object.fromEntries(
-          aggRows.map((a: any) => [a.roadmapId, { avgStars: a.avgStars ?? 0, ratingsCount: a.ratingsCount ?? 0 }])
-        );
-        return items.map((i: any) => ({
-          ...i,
-          topics: (byRoadmap[i.id] || []).slice(0, 5),
-          avgStars: aggById[i.id]?.avgStars ?? 0,
-          ratingsCount: aggById[i.id]?.ratingsCount ?? 0,
-        }));
-      } catch {
-        return [];
-      }
-    })(),
-    // Recommend topics by global usage
-    (async () => {
-      try {
-        const rows = await (prisma as any).roadmapTopic.groupBy({ by: ['topicId'], _count: { topicId: true }, orderBy: { _count: { topicId: 'desc' } }, take: 8 });
-        const ids = rows.map((r: any) => r.topicId);
-        const topics = await (prisma as any).topic.findMany({ where: { id: { in: ids } } });
-        const byId: Record<string, any> = Object.fromEntries((topics as any).map((t: any) => [t.id, t]));
-        return rows.map((r: any) => byId[r.topicId]).filter(Boolean);
-      } catch { return []; }
-    })(),
-    // Popular public roadmaps
-    (async () => {
-      try {
-        const items = await (prisma as any).roadmap.findMany({
-          where: { published: true },
-          orderBy: [{ createdAt: 'desc' }],
-          take: 24,
-          select: { id: true, title: true, slug: true, verified: true, user: { select: { name: true, image: true } } },
-        });
-        const agg = await (prisma as any).roadmapAggregates.findMany({ where: { roadmapId: { in: items.map((i: any) => i.id) } } });
-        const byId: Record<string, any> = Object.fromEntries(agg.map((a: any) => [a.roadmapId, a]));
-        const topicRows = items.length ? await (prisma as any).roadmapTopic.findMany({ where: { roadmapId: { in: items.map((i: any) => i.id) } }, include: { topic: true }, orderBy: [{ isPrimary: 'desc' }, { confidence: 'desc' }] }) : [];
-        const topicsByRoadmap: Record<string, Array<{ slug: string; name: string; isPrimary: boolean }>> = {};
-        for (const r of topicRows) {
-          const arr = (topicsByRoadmap[r.roadmapId] ||= []);
-          if (r.topic) arr.push({ slug: r.topic.slug, name: r.topic.name, isPrimary: !!r.isPrimary });
-        }
-        return items
-          .map((i: any) => ({ ...i, avgStars: byId[i.id]?.avgStars ?? 0, ratingsCount: byId[i.id]?.ratingsCount ?? 0, bayesianScore: byId[i.id]?.bayesianScore ?? 0 }))
-          .map((i: any) => ({ ...i, topics: (topicsByRoadmap[i.id] || []).slice(0, 5) }))
-          .sort((a: any, b: any) => (b.bayesianScore ?? 0) - (a.bayesianScore ?? 0) || (b.ratingsCount ?? 0) - (a.ratingsCount ?? 0))
-          .slice(0, 12);
-      } catch { return []; }
-    })(),
-    // For You
-    (async () => {
-      try {
-        const my = await (prisma as any).roadmap.findMany({ where: { userId: s.user.id }, select: { id: true } });
-        const myIds = my.map((m: any) => m.id);
-        const myTopics = await (prisma as any).roadmapTopic.findMany({ where: { roadmapId: { in: myIds } }, select: { topicId: true } });
-        const topicIds = Array.from(new Set(myTopics.map((t: any) => t.topicId)));
-        const candidates = await (prisma as any).roadmapTopic.findMany({ where: { topicId: { in: topicIds } }, select: { roadmapId: true } });
-        const roadmapIds = Array.from(new Set(candidates.map((c: any) => c.roadmapId)));
-  const items = await (prisma as any).roadmap.findMany({ where: { id: { in: roadmapIds }, published: true }, select: { id: true, title: true, slug: true, verified: true, user: { select: { name: true, image: true } } }, take: 12 });
-        const agg = await (prisma as any).roadmapAggregates.findMany({ where: { roadmapId: { in: items.map((i: any) => i.id) } } });
-        const byId: Record<string, any> = Object.fromEntries(agg.map((a: any) => [a.roadmapId, a]));
-        const topicRows = items.length ? await (prisma as any).roadmapTopic.findMany({ where: { roadmapId: { in: items.map((i: any) => i.id) } }, include: { topic: true }, orderBy: [{ isPrimary: 'desc' }, { confidence: 'desc' }] }) : [];
-        const byRoadmap2: Record<string, any[]> = {};
-        for (const r of topicRows) {
-          (byRoadmap2[r.roadmapId] ||= []).push({ slug: r.topic.slug, name: r.topic.name, isPrimary: !!r.isPrimary });
-        }
-        return items.map((i: any) => ({ ...i, avgStars: byId[i.id]?.avgStars ?? 0, ratingsCount: byId[i.id]?.ratingsCount ?? 0, topics: (byRoadmap2[i.id] || []).slice(0, 5) }));
-      } catch { return []; }
-    })(),
-  ]);
+  // Start data fetches (non-blocking for initial HTML of hero/header)
+  const inProgressPromise = loadInProgress(s.user?.id);
+  const recommendedPromise = loadRecommendedTopics();
+  const popularPromise = loadPopular();
+  const forYouPromise = loadForYou(s.user?.id);
 
   return (
     <div className="h-full overflow-y-auto bg-white dark:bg-black">
@@ -179,11 +175,12 @@ export default async function DashboardHomePage() {
         {/* Main feed */}
         <div>
           {/* In-Progress horizontal scroller */}
-          {Array.isArray(inProgress) && inProgress.length > 0 ? (
-            <InProgressScroller items={inProgress as any} />
-          ) : null}
-
-          <DashboardTabs forYou={forYou} popular={popular} />
+          <Suspense fallback={<div className="h-32 animate-pulse rounded-xl bg-slate-100 dark:bg-neutral-900" />}> 
+            <InProgressSection promise={inProgressPromise} />
+          </Suspense>
+          <Suspense fallback={<div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{Array.from({length:6}).map((_,i)=>(<div key={i} className="h-40 rounded-xl bg-slate-100 dark:bg-neutral-900 animate-pulse"/>))}</div>}>
+            <TabsSection popularPromise={popularPromise} forYouPromise={forYouPromise} />
+          </Suspense>
         </div>
 
     {/* Right column */}
@@ -191,11 +188,8 @@ export default async function DashboardHomePage() {
           <div className="rounded-2xl border border-slate-200 p-5">
             <h3 className="text-sm font-semibold text-slate-900">Recommended Topics</h3>
             <div className="mt-3 flex flex-wrap gap-2">
-              {recommendedTopics.length === 0 ? (
-                <span className="text-xs text-slate-500">Belum ada</span>
-              ) : recommendedTopics.map((t: any) => (
-                <Link key={t.id} href={`/dashboard/browse?topic=${encodeURIComponent(t.slug)}`} className="px-2 py-1 rounded-full border border-slate-200 bg-slate-50 text-xs text-slate-700 hover:bg-slate-100">{t.name}</Link>
-              ))}
+              {/* Recommended topics */}
+              <RecommendedTopics promise={recommendedPromise} />
             </div>
           </div>
 
