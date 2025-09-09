@@ -14,8 +14,8 @@ import ThirdPartyNoiseGuard from '@/components/ThirdPartyNoiseGuard';
 import PrefetchImage from '@/components/PrefetchImage';
 import ReaderRightTOC from '@/components/ReaderRightTOC';
 import FlashcardsInline from '@/components/FlashcardsInline';
-import dynamic from 'next/dynamic';
-const IncrementalMaterial = dynamic(() => import('@/components/IncrementalMaterial'), { ssr: false });
+// Direct import of client component; dynamic with ssr:false is disallowed in Server Components.
+import IncrementalMaterial from '@/components/IncrementalMaterial';
 import PostStudyRatePrompt from '@/components/PostStudyRatePrompt';
 
 export default async function ReadMaterialPage(props: any) {
@@ -118,6 +118,7 @@ export default async function ReadMaterialPage(props: any) {
         <main className="min-w-0 xl:max-w-none xl:flex-1">
         {(
           <IncrementalMaterial
+            key={`mat-${roadmap.id}-${m}-${s}`}
             roadmapId={roadmap.id}
             m={m}
             s={s}

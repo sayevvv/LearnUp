@@ -31,7 +31,15 @@ export default function IncrementalMaterial({ roadmapId, m, s, initialMaterial, 
   const [material, setMaterial] = useState<MaterialNode | null>(initialMaterial);
   const [loading, setLoading] = useState(!initialMaterial);
   const [error, setError] = useState<string | null>(null);
-  const [backgroundGen, setBackgroundGen] = useState(false);
+  // Background generation disabled per new flow (only first node auto, others manual)
+  // const [backgroundGen, setBackgroundGen] = useState(false);
+  // Reset state when navigation (m,s) changes.
+  useEffect(() => {
+    setMaterial(initialMaterial);
+    setError(null);
+    setLoading(!initialMaterial);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [m, s, initialMaterial]);
 
   const fetchRoadmapAndExtract = useCallback(async () => {
     try {
@@ -72,26 +80,7 @@ export default function IncrementalMaterial({ roadmapId, m, s, initialMaterial, 
     return () => { aborted = true; };
   }, [material, roadmapId, m, s, fetchRoadmapAndExtract]);
 
-  // Background generate next subbab if exists and missing
-  useEffect(() => {
-    let aborted = false;
-    (async () => {
-      if (!material) return; // wait until current loaded
-      const nextIndex = s + 1;
-      if (nextIndex >= expectedSubs) return;
-      const mats = byMilestone;
-      const haveNext = Array.isArray(mats?.[m]) && mats[m][nextIndex];
-      if (haveNext) return;
-      setBackgroundGen(true);
-      try {
-        const res = await fetch(`/api/roadmaps/${roadmapId}/prepare-materials?m=${m}&s=${nextIndex}`, { method: 'POST' });
-        if (!res.ok) return; // silent fail
-      } finally {
-        if (!aborted) setBackgroundGen(false);
-      }
-    })();
-    return () => { aborted = true; };
-  }, [material, roadmapId, m, s, expectedSubs, byMilestone]);
+  // Removed background generation logic.
 
   if (loading) {
     return (
@@ -184,7 +173,7 @@ export default function IncrementalMaterial({ roadmapId, m, s, initialMaterial, 
           );
         })()}
       </div>
-      {backgroundGen ? <div className="mt-3 text-xs text-slate-500">Menyiapkan materi berikutnya…</div> : null}
+  {/* Background generation notice removed */}
     </article>
   );
 }

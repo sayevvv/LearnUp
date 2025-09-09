@@ -12,7 +12,8 @@ export async function POST(req: NextRequest) {
   // Gunakan getServerSession dengan authOptions untuk mendapatkan sesi
   const session = await getServerSession(authOptions);
 
-  if (!session?.user?.id) {
+  const sessUser: any = session?.user as any;
+  if (!sessUser?.id) {
     // Jika tidak ada sesi atau user id, tolak permintaan
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -26,10 +27,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Pastikan user benar-benar ada di database untuk menghindari FK error
-    let userId = session.user.id as string;
-    let user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user && session.user.email) {
-      const byEmail = await prisma.user.findUnique({ where: { email: session.user.email } });
+  let userId = sessUser.id as string;
+  let user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user && sessUser?.email) {
+      const byEmail = await prisma.user.findUnique({ where: { email: sessUser.email } });
       if (byEmail) {
         user = byEmail;
         userId = byEmail.id;
@@ -102,6 +103,14 @@ export async function POST(req: NextRequest) {
         }
       }
     } catch {}
+
+    // Fire-and-forget generation of first node (m=0,s=0) only.
+    try {
+      const base = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
+      // Do not await; non-blocking.
+      fetch(`${base}/api/roadmaps/${newRoadmap.id}/prepare-materials?m=0&s=0`, { method: 'POST' })
+        .catch(() => { /* silent */ });
+    } catch { /* ignore */ }
 
     return NextResponse.json(newRoadmap, { status: 201 });
 

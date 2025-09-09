@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -58,6 +58,11 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [confirmDeleteText, setConfirmDeleteText] = useState('');
   const [nodeGenerating, setNodeGenerating] = useState<Record<string, boolean>>({});
+  const [autoInitTried, setAutoInitTried] = useState(false);
+  const [firstNodeGenerating, setFirstNodeGenerating] = useState(false);
+  const [firstNodeError, setFirstNodeError] = useState<string | null>(null);
+  const [hasShownFirstToast, setHasShownFirstToast] = useState(false);
+  const lastGenClickRef = useRef<Record<string, number>>({});
   // Start-date disabled for saved roadmaps
 
   // Load roadmap + progress
@@ -88,37 +93,7 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
     };
   }, [roadmapId]);
 
-  // Auto-start preparing materials when ?prepare=1 is present
-  useEffect(() => {
-    const prep = searchParams?.get('prepare');
-    if (prep === '1') {
-      // Kick off preparation in the background with inline loader
-      (async () => {
-        setPreparing(true);
-        setPrepareError(null);
-        setPreparePartial(false);
-        try {
-          const res = await fetch(`/api/roadmaps/${roadmapId}/prepare-materials`, { method: 'POST' });
-          if (!res.ok) {
-            let msg = 'Gagal menyiapkan materi';
-            try { const j = await res.json(); msg = j?.error || msg; if (j?.partial) setPreparePartial(true); } catch {}
-            if (res.status === 429) { show({ type: 'info', title: 'Server sibuk', message: msg || 'Server sedang sibuk. Coba lagi sebentar.' }); }
-            if (res.status === 409) { show({ type: 'info', title: 'Sedang ada proses lain', message: msg }); }
-            throw new Error(msg);
-          }
-          // Refresh roadmap to pick up materials
-          const r = await fetch(`/api/roadmaps/${roadmapId}`);
-          if (r.ok) setRoadmap(await r.json());
-        } catch (e: any) {
-          setPrepareError(e.message || 'Gagal menyiapkan materi');
-        } finally {
-          setPreparing(false);
-          setPrepareCtrl(null);
-        }
-      })();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, roadmapId]);
+  // Removed auto-start bulk generation (?prepare=1) per new first-node only flow
 
   // Restore preferred view per roadmap, default to graph
   useEffect(() => {
@@ -170,6 +145,57 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
       return mats.some((mi) => Array.isArray(mi) && mi.length > 0);
     } catch { return false; }
   }, [roadmap]);
+
+  // Auto-init generate only the very first node (m=0,s=0) if no materials exist at all.
+  const triggerFirstNodeGeneration = useCallback(async () => {
+    setFirstNodeError(null);
+    setFirstNodeGenerating(true);
+    try {
+      const res = await fetch(`/api/roadmaps/${roadmapId}/prepare-materials?m=0&s=0`, { method: 'POST' });
+      if (!res.ok) {
+        let msg = 'Gagal generate materi pertama';
+        try { const j = await res.json(); msg = j?.error || msg; } catch {}
+        throw new Error(msg);
+      }
+      const r = await fetch(`/api/roadmaps/${roadmapId}`);
+      if (r.ok) {
+        const j = await r.json();
+        // If previously missing and now exists show toast
+        const mats: any[][] = Array.isArray(j?.content?.materialsByMilestone) ? j.content.materialsByMilestone : [];
+        const first = mats?.[0]?.[0];
+        if (first && !hasShownFirstToast) {
+          show({ type: 'success', title: 'Siap', message: 'Materi pertama siap dipelajari.' });
+          setHasShownFirstToast(true);
+        }
+        setRoadmap(j);
+      }
+    } catch (e: any) {
+      setFirstNodeError(e.message || 'Gagal generate materi pertama');
+    } finally {
+      setFirstNodeGenerating(false);
+    }
+  }, [roadmapId, show, hasShownFirstToast]);
+
+  useEffect(() => {
+    if (!roadmap) return;
+    if (autoInitTried) return;
+    const mats: any[][] = Array.isArray((roadmap as any)?.content?.materialsByMilestone)
+      ? (roadmap as any).content.materialsByMilestone
+      : [];
+    const first = mats?.[0]?.[0];
+    const empty = !mats.some(row => Array.isArray(row) && row.length > 0);
+    if (first) {
+      setHasShownFirstToast(true); // already exists, don't toast
+      setAutoInitTried(true);
+      return;
+    }
+    if (empty && !first) {
+      setAutoInitTried(true);
+      void triggerFirstNodeGeneration();
+      return;
+    }
+    setAutoInitTried(true);
+  }, [roadmap, autoInitTried, triggerFirstNodeGeneration]);
 
   // Open modal for a milestone with optional index and load cached short summary
   const openMilestoneModal = (m: any, mi: number | null) => {
@@ -294,7 +320,17 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
           </button>
           <div className="min-w-0">
             <div className="text-[11px] uppercase tracking-wider text-slate-500 hidden sm:block">Rencana Belajar</div>
-            <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-slate-900 truncate">{roadmap.title}</h1>
+            <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-slate-900 truncate flex items-center gap-2">{roadmap.title}
+              {(() => {
+                try {
+                  const mats: any[][] = Array.isArray((roadmap as any)?.content?.materialsByMilestone) ? (roadmap as any).content.materialsByMilestone : [];
+                  if (mats?.[0]?.[0]) {
+                    return <span className="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-700 px-2 py-0.5 text-[11px] font-medium">✓ Materi pertama siap</span>;
+                  }
+                } catch {}
+                return null;
+              })()}
+            </h1>
             {Boolean((roadmap as any).sourceId) && (
               <div className="mt-1 flex items-center gap-2">
                 {(roadmap as any).source?.user?.name ? (
@@ -340,35 +376,36 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
               canRate={true}
             />
           ) : null}
-          {(!materialsReady && !(roadmap as any).published && !(roadmap as any).sourceId) ? (
-            <button
-              type="button"
-              disabled={preparing}
-              onClick={async () => {
-                if (preparing) return;
-                setMenuOpen(false);
-                setPreparing(true); setPrepareError(null); setPreparePartial(false);
-                const ctrl = new AbortController(); setPrepareCtrl(ctrl);
-                try {
-                  const res = await fetch(`/api/roadmaps/${roadmapId}/prepare-materials`, { method: 'POST', signal: ctrl.signal });
-                  if (!res.ok) {
-                    let msg = 'Gagal menyiapkan materi';
-                    try { const j = await res.json(); msg = j?.error || msg; if (j?.partial) setPreparePartial(true); } catch {}
-                    if (res.status === 429) show({ type: 'info', title: 'Server sibuk', message: msg });
-                    if (res.status === 409) show({ type: 'info', title: 'Sedang ada proses lain', message: msg });
-                    throw new Error(msg);
-                  }
-                  const r = await fetch(`/api/roadmaps/${roadmapId}`);
-                  if (r.ok) setRoadmap(await r.json());
-                } catch (e: any) {
-                  setPrepareError(e.message || 'Gagal menyiapkan materi');
-                } finally { setPreparing(false); setPrepareCtrl(null); }
-              }}
-              className="rounded-lg px-3 py-2 text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:text-slate-600 disabled:cursor-not-allowed dark:disabled:bg-[#1a1a1a] dark:disabled:text-neutral-400"
-            >Generate Materi</button>
-          ) : (
-            <Link href={`/dashboard/roadmaps/${roadmap.id}/read`} className="rounded-lg bg-blue-600 text-white px-3 py-2 text-sm font-semibold hover:bg-blue-700">Mulai Belajar</Link>
-          )}
+          {(() => {
+            const mats: any[][] = Array.isArray((roadmap as any)?.content?.materialsByMilestone) ? (roadmap as any).content.materialsByMilestone : [];
+            const first = mats?.[0]?.[0];
+            if (!first) {
+              if (firstNodeError && !firstNodeGenerating) {
+                return (
+                  <button
+                    type="button"
+                    onClick={() => triggerFirstNodeGeneration()}
+                    className="rounded-lg px-3 py-2 text-sm font-semibold bg-red-600 text-white hover:bg-red-700 inline-flex items-center gap-2"
+                  >
+                    <XCircle className="h-4 w-4" /> Coba Lagi
+                  </button>
+                );
+              }
+              return (
+                <button
+                  type="button"
+                  disabled={firstNodeGenerating}
+                  className="rounded-lg px-3 py-2 text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:text-slate-600 disabled:cursor-not-allowed dark:disabled:bg-[#1a1a1a] dark:disabled:text-neutral-400 inline-flex items-center gap-2"
+                >{firstNodeGenerating ? (
+                  <>
+                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" className="opacity-25" /><path fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" className="opacity-75" /></svg>
+                    Menyiapkan…
+                  </>
+                ) : 'Menyiapkan…'}</button>
+              );
+            }
+            return <Link href={`/dashboard/roadmaps/${roadmap.id}/read`} className="rounded-lg bg-blue-600 text-white px-3 py-2 text-sm font-semibold hover:bg-blue-700">Mulai Belajar</Link>;
+          })()}
           <div className="relative">
             <button
               type="button"
@@ -388,78 +425,7 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
                     <span>Lihat Publik</span>
                   </Link>
                 ) : null}
-                {preparing ? (
-                  <button className="flex items-center gap-2 w-full text-left px-3 py-2 text-sm rounded-md bg-slate-50 dark:bg-[#141414] hover:bg-slate-100 dark:hover:bg-[#1a1a1a]" onClick={() => { setMenuOpen(false); try { prepareCtrl?.abort(); } catch {} setPreparing(false); setPrepareCtrl(null); setPrepareError('Dibatalkan.'); }}>
-                    <XCircle className="h-4 w-4" />
-                    <span>Batalkan Generate</span>
-                  </button>
-                ) : (
-                  <>
-                    {/* Initial generate when materials are not ready */}
-                    {!materialsReady && !(roadmap as any).published && !(roadmap as any).sourceId && (
-                      <button
-                        className="flex items-center gap-2 w-full text-left px-3 py-2 text-sm rounded-md bg-slate-50 dark:bg-[#141414] hover:bg-slate-100 dark:hover:bg-[#1a1a1a]"
-                        onClick={async () => {
-                          setMenuOpen(false);
-                          setPreparing(true); setPrepareError(null); setPreparePartial(false);
-                          const ctrl = new AbortController(); setPrepareCtrl(ctrl);
-                          try {
-                            const res = await fetch(`/api/roadmaps/${roadmapId}/prepare-materials`, { method: 'POST', signal: ctrl.signal });
-                            if (!res.ok) {
-                              let msg = 'Gagal menyiapkan materi';
-                              try { const j = await res.json(); msg = j?.error || msg; if (j?.partial) setPreparePartial(true); } catch {}
-                              if (res.status === 429) show({ type: 'info', title: 'Server sibuk', message: msg });
-                              if (res.status === 409) show({ type: 'info', title: 'Sedang ada proses lain', message: msg });
-                              throw new Error(msg);
-                            }
-                            const r = await fetch(`/api/roadmaps/${roadmapId}`);
-                            if (r.ok) setRoadmap(await r.json());
-                          } catch (e: any) {
-                            setPrepareError(e.message || 'Gagal menyiapkan materi');
-                          } finally { setPreparing(false); setPrepareCtrl(null); }
-                        }}
-                      >
-                        <Sparkles className="h-4 w-4" />
-                        <span>Generate Materi</span>
-                      </button>
-                    )}
-                    {/* Regenerate option shown when there are any materials */}
-                    {hasAnyMaterials && !(roadmap as any).published && !(roadmap as any).sourceId && (
-                      <button className="flex items-center gap-2 w-full text-left px-3 py-2 text-sm rounded-md bg-slate-50 dark:bg-[#141414] hover:bg-slate-100 dark:hover:bg-[#1a1a1a]" onClick={() => { setMenuOpen(false); setConfirmResetOpen(true); }}>
-                        <RefreshCcw className="h-4 w-4" />
-                        <span>Generate Ulang…</span>
-                      </button>
-                    )}
-                    {(preparePartial || prepareError) && (
-                      <button
-                        className="flex items-center gap-2 w-full text-left px-3 py-2 text-sm rounded-md bg-slate-50 dark:bg-[#141414] hover:bg-slate-100 dark:hover:bg-[#1a1a1a]"
-                        onClick={async () => {
-                          setMenuOpen(false);
-                          setPreparing(true); setPrepareError(null); setPreparePartial(false);
-                          const ctrl = new AbortController();
-                          setPrepareCtrl(ctrl);
-                          try {
-                            const res = await fetch(`/api/roadmaps/${roadmapId}/prepare-materials`, { method: 'POST', signal: ctrl.signal });
-                            if (!res.ok) {
-                              let msg = 'Gagal menyiapkan materi';
-                              try { const j = await res.json(); msg = j?.error || msg; if (j?.partial) setPreparePartial(true); } catch {}
-                              if (res.status === 429) show({ type: 'info', title: 'Server sibuk', message: msg });
-                              if (res.status === 409) show({ type: 'info', title: 'Sedang ada proses lain', message: msg });
-                              throw new Error(msg);
-                            }
-                            const r = await fetch(`/api/roadmaps/${roadmapId}`);
-                            if (r.ok) setRoadmap(await r.json());
-                          } catch (e: any) {
-                            setPrepareError(e.message || 'Gagal menyiapkan materi');
-                          } finally { setPreparing(false); setPrepareCtrl(null); }
-                        }}
-                      >
-                        <PlayCircle className="h-4 w-4" />
-                        <span>Lanjutkan Generate</span>
-                      </button>
-                    )}
-                  </>
-                )}
+                {/* Bulk generation options removed per new incremental flow */}
                 {!(roadmap as any).sourceId ? (
                   <button
                     className="flex items-center gap-2 w-full text-left px-3 py-2 text-sm rounded-md bg-slate-50 dark:bg-[#141414] hover:bg-slate-100 dark:hover:bg-[#1a1a1a]"
@@ -726,6 +692,10 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
                               disabled={isGenerating}
                               onClick={async () => {
                                 if (isGenerating) return;
+                                const now = Date.now();
+                                const last = lastGenClickRef.current[genKey] || 0;
+                                if (now - last < 800) return; // debounce 800ms
+                                lastGenClickRef.current[genKey] = now;
                                 setNodeGenerating(prev => ({ ...prev, [genKey]: true }));
                                 try {
                                   const res = await fetch(`/api/roadmaps/${roadmapId}/prepare-materials?m=${mi}&s=${ti}`, { method: 'POST' });
