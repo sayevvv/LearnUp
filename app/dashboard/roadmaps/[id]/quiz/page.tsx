@@ -28,6 +28,7 @@ export default async function QuizPage(props: any) {
   const milestones: any[] = Array.isArray(content.milestones) ? content.milestones : [];
   const milestone = milestones[m];
   const topic = milestone?.topic || roadmap.title;
+  const isMatch = ((m + 1) % 2) === 0; // 1-based parity: even => matching
   const hasNextMaterial = Array.isArray(byMilestone?.[m + 1]) && byMilestone[m + 1].length > 0;
   const nextTopic = milestones[m + 1]?.topic as string | undefined;
   const nextHref = hasNextMaterial ? `/dashboard/roadmaps/${roadmap.id}/read?m=${m + 1}&s=0` : undefined;
@@ -46,7 +47,7 @@ export default async function QuizPage(props: any) {
       </header>
       <main className="max-w-3xl mx-auto p-6">
         <h2 className="text-lg font-semibold text-slate-900">{topic}</h2>
-        <p className="mt-1 text-sm text-slate-600">Jawab pertanyaan pilihan ganda. Nilai minimal 60% untuk membuka tahap berikutnya.</p>
+  <p className="mt-1 text-sm text-slate-600">{isMatch ? 'Jodohkan istilah dengan definisinya. Nilai minimal 60% untuk membuka tahap berikutnya.' : 'Jawab pertanyaan pilihan ganda. Nilai minimal 60% untuk membuka tahap berikutnya.'}</p>
         <div className="mt-6">
           <QuizClient
             roadmapId={roadmap.id}

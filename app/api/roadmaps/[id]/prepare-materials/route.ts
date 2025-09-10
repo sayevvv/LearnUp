@@ -7,6 +7,27 @@ import { PromptTemplate } from "@langchain/core/prompts";
 import { githubChatCompletion } from '@/lib/ai/githubModels';
 import { HarmBlockThreshold, HarmCategory } from "@google/generative-ai";
 import { assertSameOrigin } from "@/lib/security";
+import { deriveMatchingPairs } from '@/lib/quiz';
+
+// Replace undefined values (including sparse array holes) with null so Prisma JSON is valid
+function sanitizeForJson(value: any): any {
+  if (value === undefined) return null;
+  if (Array.isArray(value)) {
+    const arr: any[] = new Array(value.length);
+    for (let i = 0; i < value.length; i++) {
+      arr[i] = sanitizeForJson(value[i]);
+    }
+    return arr;
+  }
+  if (value && typeof value === 'object') {
+    const out: any = {};
+    for (const k of Object.keys(value)) {
+      out[k] = sanitizeForJson((value as any)[k]);
+    }
+    return out;
+  }
+  return value;
+}
 
 export async function POST(_req: NextRequest, ctx: any) {
   try { assertSameOrigin(_req as any); } catch (e: any) { return NextResponse.json({ error: 'Forbidden' }, { status: e?.status || 403 }); }
@@ -117,8 +138,8 @@ Instruksi:
         } catch {}
       }
       const base = reset ? { ...(content || {}), materialsByMilestone: [] } : (content || {});
-      const mark = { ...base, _generation: { inProgress: true, startedAt: new Date().toISOString() } };
-      await (prisma as any).roadmap.update({ where: { id: (roadmap as any).id }, data: { content: mark } });
+  const mark = { ...base, _generation: { inProgress: true, startedAt: new Date().toISOString() } };
+  await (prisma as any).roadmap.update({ where: { id: (roadmap as any).id }, data: { content: sanitizeForJson(mark) } });
     } catch {}
   }
 
@@ -148,8 +169,8 @@ Instruksi:
 
     // Mark generation
     try {
-      const mark = { ...(content || {}), _generation: { inProgress: true, milestone: mi, startedAt: new Date().toISOString() } };
-      await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: mark } });
+  const mark = { ...(content || {}), _generation: { inProgress: true, milestone: mi, startedAt: new Date().toISOString() } };
+  await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: sanitizeForJson(mark) } });
     } catch {}
 
     // If cancellation requested before starting, stop early
@@ -160,7 +181,7 @@ Instruksi:
       const cancelAny = !!gen?.cancelRequested && typeof gen.cancelRequested.milestone === 'undefined';
       if (gen?.cancelRequested && (cancelAny || cancelMi === mi)) {
         const cleared = { ...(fresh as any)?.content, _generation: { inProgress: false, canceled: true, milestone: mi, canceledAt: new Date().toISOString() } };
-        try { await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: cleared } }); } catch {}
+  try { await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: sanitizeForJson(cleared) } }); } catch {}
         return NextResponse.json({ ok: false, canceled: true, milestoneIndex: mi });
       }
     } catch {}
@@ -175,7 +196,7 @@ Instruksi:
         const cancelAny = !!gen?.cancelRequested && typeof gen.cancelRequested.milestone === 'undefined';
         if (gen?.cancelRequested && (cancelAny || cancelMi === mi)) {
           const cleared = { ...(fresh as any)?.content, _generation: { inProgress: false, canceled: true, milestone: mi, canceledAt: new Date().toISOString() } };
-          try { await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: cleared } }); } catch {}
+          try { await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: sanitizeForJson(cleared) } }); } catch {}
           return NextResponse.json({ ok: false, canceled: true, milestoneIndex: mi, count: materials.length });
         }
       } catch {}
@@ -197,7 +218,7 @@ Instruksi:
         const newMats = [...existingMaterials];
         newMats[mi] = materials;
         const partial = { ...(content || {}), materialsByMilestone: newMats, _generation: { inProgress: false, milestone: mi, finishedAt: new Date().toISOString() } };
-        try { await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: partial } }); } catch {}
+  try { await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: sanitizeForJson(partial) } }); } catch {}
         const msg = String(e?.message || 'Gagal membuat materi milestone');
         return NextResponse.json({ ok: false, partial: true, error: msg, milestoneIndex: mi, count: materials.length }, { status: 503 });
       }
@@ -215,8 +236,9 @@ Instruksi:
       return `Subbab ${idx + 1}: ${title}\nBody:\n${body}${pts}`;
     });
     const quizContext = quizContextParts.join('\n\n---\n\n');
-    // Decide quiz type by milestone parity: 0-based even (1st, 3rd, ...) => MCQ; odd => matching
-  const quizType: 'mcq' | 'match' = (mi % 2 === 0) ? 'mcq' : 'match';
+    // Decide quiz type by milestone parity: 0-based even (1st, 3rd, ...) => matching; odd => MCQ
+  // 1-based parity: milestone #2, #4, ... (mi+1 even) => matching; #1, #3, ... => MCQ
+  const quizType: 'mcq' | 'match' = ((mi + 1) % 2 === 0) ? 'match' : 'mcq';
     let quizPayload: any = null;
     try {
       if (quizType === 'mcq') {
@@ -272,17 +294,30 @@ Konteks Materi:
         if (start !== -1 && end !== -1 && end > start) raw = raw.slice(start, end + 1);
         const parsed = JSON.parse(raw);
         const items = Array.isArray(parsed) ? parsed : [];
-        const pairs = items
+        let pairs = items
           .filter((it: any) => it && typeof it.term === 'string' && typeof it.definition === 'string')
           .map((it: any) => ({ term: String(it.term).slice(0, 120), definition: String(it.definition).slice(0, 240) }))
           .slice(0, 6);
+        if (pairs.length < 2) {
+          // Deterministic fallback using derived pairs from generated materials
+          try {
+            const merged: any = { glossary: [], points: [], body: '' };
+            for (const it of (newMaterialsMatrix[mi] || [])) {
+              if (Array.isArray(it?.glossary)) merged.glossary.push(...it.glossary);
+              if (Array.isArray(it?.points)) merged.points.push(...it.points);
+              if (typeof it?.body === 'string') merged.body += (merged.body ? '\n\n' : '') + it.body;
+            }
+            const obj = deriveMatchingPairs(merged);
+            pairs = Object.keys(obj).map(k => ({ term: k.slice(0,120), definition: String(obj[k]).slice(0,240) })).slice(0, 6);
+          } catch {}
+        }
         if (pairs.length >= 2) quizPayload = { type: 'match', data: pairs };
       }
     } catch {}
 
     // Heuristic fallback if generation failed or insufficient data
     if (!quizPayload) {
-      // Fallback to MCQ synthesized from subbab titles
+      // As a last resort, fallback to MCQ synthesized from subbab titles
       try {
         const subsTitles: string[] = subs.slice(0, 6);
         const choicesPool = [...subsTitles];
@@ -297,10 +332,13 @@ Konteks Materi:
       } catch {}
     }
 
-    const newQuizzesMatrix: any[] = [...existingQuizzes];
-    if (quizPayload) newQuizzesMatrix[mi] = quizPayload;
-    const finalContent = { ...(content || {}), materialsByMilestone: newMaterialsMatrix, quizzesByMilestone: newQuizzesMatrix, _generation: { inProgress: false, milestone: mi, finishedAt: new Date().toISOString() } };
-    await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: finalContent } });
+  const newQuizzesMatrix: any[] = [...existingQuizzes];
+  if (quizPayload) newQuizzesMatrix[mi] = quizPayload;
+  // Ensure no undefined values/holes in arrays saved to JSON
+  const safeMaterials = Array.from(newMaterialsMatrix || [], (x: any) => (x === undefined ? null : x));
+  const safeQuizzes = Array.from(newQuizzesMatrix || [], (x: any) => (x === undefined ? null : x));
+  const finalContent = { ...(content || {}), materialsByMilestone: safeMaterials, quizzesByMilestone: safeQuizzes, _generation: { inProgress: false, milestone: mi, finishedAt: new Date().toISOString() } };
+  await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: sanitizeForJson(finalContent) } });
   return NextResponse.json({ ok: true, mode: 'milestone', milestoneIndex: mi, materials: newMaterialsMatrix[mi].length, quiz: quizPayload ? quizPayload.data.length : 0, quizType: quizPayload?.type || quizType });
   }
 
@@ -328,8 +366,8 @@ Konteks Materi:
 
     // Acquire short-term lock to avoid rapid duplicate calls
     try {
-      const lockMark = { ...(content || {}), _generation: { inProgress: true, startedAt: new Date().toISOString(), single: true } };
-      await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: lockMark } });
+  const lockMark = { ...(content || {}), _generation: { inProgress: true, startedAt: new Date().toISOString(), single: true } };
+  await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: sanitizeForJson(lockMark) } });
     } catch {}
 
     const pTxt = await prompt.format({ topic: `${milestone.topic} — ${subTitle}`, subbab: `- ${subTitle}` });
@@ -345,7 +383,7 @@ Konteks Materi:
       // release lock
       try {
         const release = { ...(content || {}), _generation: { inProgress: false, finishedAt: new Date().toISOString(), single: true } };
-        await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: release } });
+        await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: sanitizeForJson(release) } });
       } catch {}
       const msg = String(e?.message || 'Gagal membuat materi');
       const is429 = /429|rate|quota|exhaust/i.test(msg);
@@ -362,8 +400,8 @@ Konteks Materi:
       ml.sort((a, b) => (a.subIndex || 0) - (b.subIndex || 0));
     }
     newMats[mi] = ml;
-    const newContent = { ...(content || {}), materialsByMilestone: newMats, _generation: { inProgress: false, finishedAt: new Date().toISOString(), single: true } };
-    await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: newContent } });
+  const newContent = { ...(content || {}), materialsByMilestone: newMats, _generation: { inProgress: false, finishedAt: new Date().toISOString(), single: true } };
+  await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: sanitizeForJson(newContent) } });
     return NextResponse.json({ ok: true, mode: 'single', milestoneIndex: mi, subIndex: si, item });
   }
 
@@ -392,7 +430,7 @@ Konteks Materi:
           // Persist what we have so far and return a busy error
           materialsByMilestone.push(items);
           const partialContent = { ...(content || {}), materialsByMilestone };
-          await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: { ...partialContent, _generation: { inProgress: false, finishedAt: new Date().toISOString() } } } });
+          await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: sanitizeForJson({ ...partialContent, _generation: { inProgress: false, finishedAt: new Date().toISOString() } }) } });
           const msg = String(e?.message || 'Gagal membuat materi');
           const is429 = e?.status === 429 || /rate|quota|exhaust/i.test(msg) || /429/.test(msg);
           return NextResponse.json(
@@ -408,7 +446,7 @@ Konteks Materi:
     const is429 = e?.status === 429 || /rate|quota|exhaust/i.test(msg) || /429/.test(msg);
     const partialContent = { ...(content || {}), materialsByMilestone };
     // Save partial progress if any
-    try { await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: { ...partialContent, _generation: { inProgress: false, finishedAt: new Date().toISOString() } } } }); } catch {}
+  try { await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: sanitizeForJson({ ...partialContent, _generation: { inProgress: false, finishedAt: new Date().toISOString() } }) } }); } catch {}
     return NextResponse.json(
       { ok: false, partial: true, error: is429 ? 'Server sedang sibuk. Coba lagi sebentar.' : 'Terjadi kesalahan saat menyiapkan materi.', count: materialsByMilestone.reduce((a, b) => a + b.length, 0) },
       { status: is429 ? 429 : 503 }
@@ -417,7 +455,7 @@ Konteks Materi:
 
   // Save back into content.materials
   const newContent = { ...(content || {}), materialsByMilestone, _generation: { inProgress: false, finishedAt: new Date().toISOString() } };
-  await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: newContent } });
+  await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: sanitizeForJson(newContent) } });
 
   return NextResponse.json({ ok: true, count: materialsByMilestone.reduce((a, b) => a + b.length, 0) });
 }

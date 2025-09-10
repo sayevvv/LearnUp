@@ -7,6 +7,22 @@ import { githubChatCompletion } from '@/lib/ai/githubModels';
 import { assertSameOrigin } from '@/lib/security';
 import { deriveMatchingPairs } from '@/lib/quiz';
 
+// Ensure JSON saved to Prisma doesn't contain undefined or sparse array holes
+function sanitizeForJson(value: any): any {
+  if (value === undefined) return null;
+  if (Array.isArray(value)) {
+    const arr: any[] = new Array(value.length);
+    for (let i = 0; i < value.length; i++) arr[i] = sanitizeForJson(value[i]);
+    return arr;
+  }
+  if (value && typeof value === 'object') {
+    const out: any = {};
+    for (const k of Object.keys(value)) out[k] = sanitizeForJson(value[k]);
+    return out;
+  }
+  return value;
+}
+
 export async function GET(req: NextRequest, ctx: any) {
   const { id } = await (ctx as any).params;
   const session = (await getServerSession(authOptions as any)) as any;
@@ -14,48 +30,13 @@ export async function GET(req: NextRequest, ctx: any) {
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const url = new URL(req.url);
   const m = Number(url.searchParams.get('m') || '0');
+  const force = url.searchParams.get('force') === '1';
 
   const roadmap = await (prisma as any).roadmap.findFirst({ where: { id, userId } });
   if (!roadmap) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   const content: any = (roadmap as any).content || {};
   const byMilestone: any[][] = Array.isArray(content.materialsByMilestone) ? content.materialsByMilestone : [];
-    const storedQuizzes: any[] = Array.isArray(content.quizzesByMilestone) ? content.quizzesByMilestone : [];
-    const parityType: 'mcq' | 'match' = (m % 2 === 0) ? 'mcq' : 'match';
-    // If stored quiz exists, return it — but if parity expects 'match' and stored is MCQ, try to upgrade to match once
-    const stored = storedQuizzes[m];
-    if (stored) {
-      // Legacy array (assume MCQ)
-      if (Array.isArray(stored) && stored.length) {
-        if (parityType === 'match') {
-          // Attempt upgrade to matching using context
-          const upgraded = await buildAndPersistMatchFromContext();
-          if (upgraded) return NextResponse.json({ type: 'match', pairs: upgraded });
-        }
-        return NextResponse.json({ type: 'mcq', questions: stored });
-      }
-      if (stored.type === 'mcq') {
-        if (parityType === 'match') {
-          const upgraded = await buildAndPersistMatchFromContext();
-          if (upgraded) return NextResponse.json({ type: 'match', pairs: upgraded });
-        }
-        return NextResponse.json({ type: 'mcq', questions: stored.data || [] });
-      }
-      if (stored.type === 'match') {
-        const pairs = Array.isArray(stored.data) ? stored.data : [];
-        if (pairs.length >= 2) {
-          return NextResponse.json({ type: 'match', pairs });
-        }
-        // Stored is empty or invalid; try to rebuild and persist
-        const rebuilt = await buildAndPersistMatchFromContext();
-        if (rebuilt && rebuilt.length >= 2) return NextResponse.json({ type: 'match', pairs: rebuilt });
-        return NextResponse.json({ type: 'match', pairs: [] });
-      }
-    }
   const materials = byMilestone[m] || [];
-  if (!materials.length) {
-    return NextResponse.json(parityType === 'mcq' ? { type: 'mcq', questions: [] } : { type: 'match', pairs: [] });
-  }
-
   // Build context strictly from generated materials of this milestone's subbab
   const contextParts: string[] = materials.map((it, idx) => {
     const pts = Array.isArray(it.points) && it.points.length ? `\nPoin:\n- ${it.points.join('\n- ')}` : '';
@@ -65,7 +46,28 @@ export async function GET(req: NextRequest, ctx: any) {
   });
   const context = contextParts.join('\n\n---\n\n');
 
-  // Fallback: generate once based on milestone parity, then persist
+  const storedQuizzes: any[] = Array.isArray(content.quizzesByMilestone) ? content.quizzesByMilestone : [];
+  // 1-based parity: second milestone (m=1) and other even numbers -> matching
+  const parityType: 'mcq' | 'match' = (((m + 1) % 2) === 0) ? 'match' : 'mcq';
+  // Local deterministic fallback from materials: title -> first sentence of body
+  function buildPairsFromMaterials(): Array<{term:string;definition:string}> {
+    const seen = new Set<string>();
+    const out: Array<{term:string;definition:string}> = [];
+    for (const it of materials) {
+      const term = String(it?.title || '').trim().slice(0, 120);
+      const body = String(it?.body || '');
+      const firstSentence = body.split(/(?<=[.!?])\s+/)[0]?.trim() || '';
+      const def = firstSentence || body.slice(0, 180);
+      const key = term.toLowerCase();
+      if (term && def && def.length >= 8 && !seen.has(key)) {
+        out.push({ term, definition: def.slice(0, 240) });
+        seen.add(key);
+      }
+      if (out.length >= 6) break;
+    }
+    // Ensure minimum quality: drop pairs where definition equals term or too short
+    return out.filter(p => p.definition.toLowerCase() !== p.term.toLowerCase() && p.definition.length >= 8);
+  }
   // Helper to build/persist matching from context (threshold >= 2)
   async function buildAndPersistMatchFromContext(): Promise<Array<{term:string;definition:string}>|null> {
     try {
@@ -89,35 +91,63 @@ Konteks Materi:
       if (start !== -1 && end !== -1 && end > start) text = text.slice(start, end + 1);
       const parsed = JSON.parse(text);
       const items = Array.isArray(parsed) ? parsed : [];
-      const pairs = items
+      let pairs = items
         .filter((it: any) => it && typeof it.term === 'string' && typeof it.definition === 'string')
         .map((it: any) => ({ term: String(it.term).slice(0, 120), definition: String(it.definition).slice(0, 240) }))
         .slice(0, 6);
-      if (pairs.length >= 2) {
-        const newQuizzes: any[] = Array.isArray(content.quizzesByMilestone) ? [...content.quizzesByMilestone] : [];
-        newQuizzes[m] = { type: 'match', data: pairs };
-        await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: { ...(content || {}), quizzesByMilestone: newQuizzes } } });
-        return pairs;
+      if (pairs.length < 2 && Array.isArray(materials) && materials.length) {
+        const merged: any = { glossary: [], points: [], body: '' };
+        for (const it of materials) {
+          if (Array.isArray(it?.glossary)) merged.glossary.push(...it.glossary);
+          if (Array.isArray(it?.points)) merged.points.push(...it.points);
+          if (typeof it?.body === 'string') merged.body += (merged.body ? '\n\n' : '') + it.body;
+        }
+        const obj = deriveMatchingPairs(merged);
+        pairs = Object.keys(obj).map(k => ({ term: k.slice(0,120), definition: String(obj[k]).slice(0,240) })).slice(0, 6);
       }
-    } catch {}
-    // Fallback to deterministic derivation from materials
-    try {
-      const merged: any = { glossary: [], points: [], body: '' };
-      for (const it of materials) {
-        if (Array.isArray(it?.glossary)) merged.glossary.push(...it.glossary);
-        if (Array.isArray(it?.points)) merged.points.push(...it.points);
-        if (typeof it?.body === 'string') merged.body += (merged.body ? '\n\n' : '') + it.body;
-      }
-      const obj = deriveMatchingPairs(merged);
-      const pairs = Object.keys(obj).map(k => ({ term: k.slice(0,120), definition: String(obj[k]).slice(0,240) })).slice(0, 6);
       if (pairs.length >= 2) {
-        const newQuizzes: any[] = Array.isArray(content.quizzesByMilestone) ? [...content.quizzesByMilestone] : [];
-        newQuizzes[m] = { type: 'match', data: pairs };
-        await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: { ...(content || {}), quizzesByMilestone: newQuizzes } } });
+  const newQuizzes: any[] = Array.isArray(content.quizzesByMilestone) ? [...content.quizzesByMilestone] : [];
+  newQuizzes[m] = { type: 'match', data: pairs };
+  const safeQuizzes = Array.from(newQuizzes, (x: any) => (x === undefined ? null : x));
+  await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: sanitizeForJson({ ...(content || {}), quizzesByMilestone: safeQuizzes }) } });
         return pairs;
       }
     } catch {}
     return null;
+  }
+
+  // If stored quiz exists, return it — but if parity expects 'match' and stored is MCQ, try to upgrade to match once
+  const stored = storedQuizzes[m];
+  if (!force && stored) {
+    // Legacy array (assume MCQ)
+    if (Array.isArray(stored) && stored.length) {
+      if (parityType === 'match') {
+        // Attempt upgrade to matching using context
+        const upgraded = await buildAndPersistMatchFromContext();
+        if (upgraded) return NextResponse.json({ type: 'match', pairs: upgraded });
+      }
+      return NextResponse.json({ type: 'mcq', questions: stored });
+    }
+    if (stored.type === 'mcq') {
+      if (parityType === 'match') {
+        const upgraded = await buildAndPersistMatchFromContext();
+        if (upgraded) return NextResponse.json({ type: 'match', pairs: upgraded });
+      }
+      return NextResponse.json({ type: 'mcq', questions: stored.data || [] });
+    }
+    if (stored.type === 'match') {
+      const pairs = Array.isArray(stored.data) ? stored.data : [];
+      if (pairs.length >= 2) {
+        return NextResponse.json({ type: 'match', pairs });
+      }
+      // Stored is empty or invalid; try to rebuild and persist
+      const rebuilt = await buildAndPersistMatchFromContext();
+      if (rebuilt && rebuilt.length >= 2) return NextResponse.json({ type: 'match', pairs: rebuilt });
+      return NextResponse.json({ type: 'match', pairs: [] });
+    }
+  }
+  if (!materials.length) {
+    return NextResponse.json(parityType === 'mcq' ? { type: 'mcq', questions: [] } : { type: 'match', pairs: [] });
   }
   try {
     if (parityType === 'mcq') {
@@ -184,14 +214,15 @@ Konteks Materi:
         })
         .slice(0, 5);
       if (cleaned.length) {
-        const newQuizzes: any[] = Array.isArray(content.quizzesByMilestone) ? [...content.quizzesByMilestone] : [];
-        newQuizzes[m] = { type: 'mcq', data: cleaned };
-        await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: { ...(content || {}), quizzesByMilestone: newQuizzes } } });
+  const newQuizzes: any[] = Array.isArray(content.quizzesByMilestone) ? [...content.quizzesByMilestone] : [];
+  newQuizzes[m] = { type: 'mcq', data: cleaned };
+  const safeQuizzes = Array.from(newQuizzes, (x: any) => (x === undefined ? null : x));
+  await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: sanitizeForJson({ ...(content || {}), quizzesByMilestone: safeQuizzes }) } });
         return NextResponse.json({ type: 'mcq', questions: cleaned });
       }
-    } else {
+  } else {
       const prompt = new PromptTemplate({
-        template: `Dari konteks materi berikut, buat 4-6 pasangan istilah dan definisi/singkatnya. Pastikan definisi dapat diverifikasi dari konteks.
+    template: `Dari konteks materi berikut, buat 2-6 pasangan istilah dan definisi/singkatnya. Pastikan definisi dapat diverifikasi dari konteks.
 Kembalikan HANYA JSON valid array berisi objek: {"term":"...","definition":"..."}.
 
 Konteks Materi:
@@ -210,15 +241,26 @@ Konteks Materi:
       if (start !== -1 && end !== -1 && end > start) text = text.slice(start, end + 1);
       const parsed = JSON.parse(text);
       const items = Array.isArray(parsed) ? parsed : [];
-      const pairs = items
+      let pairs = items
         .filter((it: any) => it && typeof it.term === 'string' && typeof it.definition === 'string')
         .map((it: any) => ({ term: String(it.term).slice(0, 120), definition: String(it.definition).slice(0, 240) }))
         .slice(0, 6);
+      // Dedupe by term and drop low-quality defs
+      if (pairs.length) {
+        const seen = new Set<string>();
+        pairs = pairs.filter(p => {
+          const key = p.term.toLowerCase();
+          const ok = !!p.term && !!p.definition && p.definition.length >= 8 && p.definition.toLowerCase() !== p.term.toLowerCase() && !seen.has(key);
+          if (ok) seen.add(key);
+          return ok;
+        });
+      }
       // Accept minimal viable 2+ pairs; if insufficient, fallback to deterministic derivation
       if (pairs.length >= 2) {
         const newQuizzes: any[] = Array.isArray(content.quizzesByMilestone) ? [...content.quizzesByMilestone] : [];
         newQuizzes[m] = { type: 'match', data: pairs };
-        await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: { ...(content || {}), quizzesByMilestone: newQuizzes } } });
+        const safeQuizzes = Array.from(newQuizzes, (x: any) => (x === undefined ? null : x));
+        await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: sanitizeForJson({ ...(content || {}), quizzesByMilestone: safeQuizzes }) } });
         return NextResponse.json({ type: 'match', pairs });
       }
       // Fallback: derive from materials when LLM doesn't provide enough pairs
@@ -230,13 +272,19 @@ Konteks Materi:
           if (typeof it?.body === 'string') merged.body += (merged.body ? '\n\n' : '') + it.body;
         }
         const obj = deriveMatchingPairs(merged);
-        const dpairs = Object.keys(obj).map(k => ({ term: k.slice(0,120), definition: String(obj[k]).slice(0,240) })).slice(0, 6);
+        let dpairs = Object.keys(obj).map(k => ({ term: k.slice(0,120), definition: String(obj[k]).slice(0,240) })).slice(0, 6);
+        // If still insufficient, construct pairs from materials titles/first sentences
+        if (dpairs.length < 2) {
+          dpairs = buildPairsFromMaterials();
+        }
         if (dpairs.length >= 2) {
           const newQuizzes: any[] = Array.isArray(content.quizzesByMilestone) ? [...content.quizzesByMilestone] : [];
           newQuizzes[m] = { type: 'match', data: dpairs };
-          await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: { ...(content || {}), quizzesByMilestone: newQuizzes } } });
+          const safeQuizzes = Array.from(newQuizzes, (x: any) => (x === undefined ? null : x));
+          await (prisma as any).roadmap.update({ where: { id: roadmap.id }, data: { content: sanitizeForJson({ ...(content || {}), quizzesByMilestone: safeQuizzes }) } });
           return NextResponse.json({ type: 'match', pairs: dpairs });
         }
+        // Persist even single pair to avoid rework? Prefer minimum 2; else empty response.
       } catch {}
     }
   } catch {}

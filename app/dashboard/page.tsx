@@ -6,6 +6,7 @@ import DashboardTabs from '@/components/DashboardTabs';
 import Link from 'next/link';
 import GuardedLink from '@/components/GuardedLink';
 import DashboardHydrator from '@/components/DashboardHydrator';
+import LidmInfoButton from '@/components/LidmInfoButton';
 
 // Async section components (server) ------------------
 async function InProgressSection({ promise }: { promise: Promise<any[]> }) {
@@ -103,12 +104,13 @@ export default async function DashboardHomePage() {
             Buat <span className="bg-gradient-to-r from-sky-500 via-blue-500 to-orange-400 bg-clip-text text-transparent">Rencana Belajarmu Sendiri</span>
           </h1>
           <p className="mt-3 text-sm md:text-base text-slate-600 dark:text-neutral-300 max-w-2xl mx-auto">Mulai perjalanan belajar terstruktur yang disesuaikan dengan tujuanmu, dan kembangkan skill secara fokus.</p>
-          <div className="mt-6 flex justify-center">
+          <div className="mt-6 flex justify-center gap-3">
             <GuardedLink href="/dashboard/new" className="group relative inline-flex items-center justify-center">
               <span className="absolute -inset-0.5 rounded-xl bg-gradient-to-r from-sky-500 via-indigo-500 to-orange-400 opacity-70 blur-sm transition-all duration-300 group-hover:opacity-90 group-hover:blur-md" aria-hidden />
               <span className="relative inline-flex items-center gap-2 rounded-lg bg-white/90 px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-sm ring-1 ring-slate-200 transition-colors group-hover:bg-white dark:bg-white/5 dark:text-white dark:ring-white/10">Buat Rencana Belajar</span>
     
             </GuardedLink>
+            <LidmInfoButton />
           </div>
         </div>
       </section>
