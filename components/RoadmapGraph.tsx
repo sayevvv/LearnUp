@@ -3,6 +3,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, memo, useMemo } from 'react';
+import Link from 'next/link';
 import ReactFlow, { 
   Background, 
   Controls, 
@@ -48,10 +49,14 @@ interface MilestoneNodeData {
   promptMode: 'simple' | 'advanced';
   durationDays?: number;
   computedDates?: string; // computed from startDate and cumulative offsets
+  // Optional generate/open UI for Graph view
+  getMilestoneUI?: (index: number) => { complete: boolean; generating: boolean; disabled: boolean; openHref?: string | null };
+  onGenerate?: (index: number) => void;
 }
 
 const MilestoneNode = memo(({ data, selected }: NodeProps<MilestoneNodeData>) => {
-  const { index, milestone, onNodeClick, onStartClick, onSubbabClick, startButtonLabel, promptMode, durationDays, computedDates } = data;
+  const { index, milestone, onNodeClick, onStartClick, onSubbabClick, startButtonLabel, promptMode, durationDays, computedDates, getMilestoneUI, onGenerate } = data;
+  const ui = getMilestoneUI ? getMilestoneUI(index) : undefined;
 
   return (
     <div className="flex flex-col w-full p-4 text-left transition-colors bg-white dark:bg-[#0a0a0a] border shadow-md rounded-lg border-slate-200 dark:border-[#1f1f1f] hover:border-blue-500" style={{ minHeight: 180 }}>
@@ -109,12 +114,36 @@ const MilestoneNode = memo(({ data, selected }: NodeProps<MilestoneNodeData>) =>
             ))}
         </ul>
       </div>
-      <button
-        onClick={() => (onStartClick ? onStartClick(index) : onNodeClick(milestone))}
-        className="mt-4 w-full px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-100 rounded-md hover:bg-blue-200 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 flex-shrink-0"
-      >
-        {startButtonLabel || 'Jabarkan Materi'}
-      </button>
+      <div className="mt-4 flex items-center gap-2">
+        {/* Primary action: Generate or Open when UI info provided */}
+        {ui ? (
+          ui.complete && ui.openHref ? (
+            <Link
+              href={ui.openHref}
+              className="flex-1 inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-blue-700"
+            >Buka</Link>
+          ) : (
+            <button
+              type="button"
+              disabled={ui.disabled || ui.generating}
+              onClick={() => { if (!ui.disabled && !ui.generating && onGenerate) onGenerate(index); }}
+              className="flex-1 inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:bg-slate-300 disabled:text-slate-600 disabled:cursor-not-allowed"
+            >{ui.generating ? (
+              <>
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" className="opacity-25" /><path fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" className="opacity-75" /></svg>
+                Generate Milestone…
+              </>
+            ) : 'Generate Milestone'}</button>
+          )
+        ) : null}
+        {/* Secondary: Detail */}
+        <button
+          onClick={() => (onStartClick ? onStartClick(index) : onNodeClick(milestone))}
+          className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-100 rounded-md hover:bg-blue-200 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 flex-shrink-0"
+        >
+          {startButtonLabel || 'Jabarkan Materi'}
+        </button>
+      </div>
     </div>
   );
 });
@@ -142,7 +171,7 @@ const generateFlowElements = (
   onNodeClick: (node: Milestone) => void,
   promptMode: 'simple' | 'advanced',
   startDate?: string,
-  options?: { onStartClick?: (mi: number) => void; onSubbabClick?: (mi: number, si: number, title: string) => void; startButtonLabel?: string }
+  options?: { onStartClick?: (mi: number) => void; onSubbabClick?: (mi: number, si: number, title: string) => void; startButtonLabel?: string; getMilestoneUI?: (index: number) => { complete: boolean; generating: boolean; disabled: boolean; openHref?: string | null }; onGenerate?: (index: number) => void }
 ): { initialNodes: Node[], initialEdges: Edge[] } => {
   const initialNodes: Node[] = [];
   const initialEdges: Edge[] = [];
@@ -172,7 +201,7 @@ const generateFlowElements = (
       id: nodeId,
       type: 'milestone',
       position: { x, y },
-      data: { index: index, milestone, onNodeClick, promptMode, durationDays, computedDates, onStartClick: options?.onStartClick, onSubbabClick: options?.onSubbabClick, startButtonLabel: options?.startButtonLabel },
+  data: { index: index, milestone, onNodeClick, promptMode, durationDays, computedDates, onStartClick: options?.onStartClick, onSubbabClick: options?.onSubbabClick, startButtonLabel: options?.startButtonLabel, getMilestoneUI: options?.getMilestoneUI, onGenerate: options?.onGenerate },
   style: { width: NODE_WIDTH, padding: 0, border: 'none', borderRadius: '12px', backgroundColor: 'transparent' },
     });
 
@@ -211,7 +240,7 @@ const generateFlowElements = (
   return { initialNodes, initialEdges };
 };
 
-export default function RoadmapGraph({ data, onNodeClick, promptMode, startDate, showMiniMap = false, onStartClick, onSubbabClick, startButtonLabel }: { data: { milestones: any[] }, onNodeClick: (milestone: any) => void, promptMode: 'simple' | 'advanced', startDate?: string, showMiniMap?: boolean, onStartClick?: (mi: number) => void, onSubbabClick?: (mi: number, si: number, title: string) => void, startButtonLabel?: string }) {
+export default function RoadmapGraph({ data, onNodeClick, promptMode, startDate, showMiniMap = false, onStartClick, onSubbabClick, startButtonLabel, getMilestoneUI, onGenerate }: { data: { milestones: any[] }, onNodeClick: (milestone: any) => void, promptMode: 'simple' | 'advanced', startDate?: string, showMiniMap?: boolean, onStartClick?: (mi: number) => void, onSubbabClick?: (mi: number, si: number, title: string) => void, startButtonLabel?: string, getMilestoneUI?: (index: number) => { complete: boolean; generating: boolean; disabled: boolean; openHref?: string | null }, onGenerate?: (index: number) => void }) {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const nodeTypes = useMemo(() => ({ ...baseNodeTypes }), []);
@@ -234,7 +263,7 @@ export default function RoadmapGraph({ data, onNodeClick, promptMode, startDate,
       onNodeClick,
       promptMode,
       startDate,
-      { onStartClick, onSubbabClick, startButtonLabel }
+  { onStartClick, onSubbabClick, startButtonLabel, getMilestoneUI, onGenerate }
     );
     setNodes(initialNodes);
     setEdges(initialEdges);
@@ -245,9 +274,9 @@ export default function RoadmapGraph({ data, onNodeClick, promptMode, startDate,
   useEffect(() => {
     setNodes((prev) => prev.map((n) => ({
       ...n,
-      data: { ...(n.data as any), onNodeClick, onStartClick, onSubbabClick, startButtonLabel },
+      data: { ...(n.data as any), onNodeClick, onStartClick, onSubbabClick, startButtonLabel, getMilestoneUI, onGenerate },
     })));
-  }, [onNodeClick, onStartClick, onSubbabClick, startButtonLabel]);
+  }, [onNodeClick, onStartClick, onSubbabClick, startButtonLabel, getMilestoneUI, onGenerate]);
 
   // After nodes render, measure actual node heights per row and adjust Y offsets to max height per row
   useEffect(() => {

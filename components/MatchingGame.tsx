@@ -27,7 +27,7 @@ const shuffleArray = <T,>(array: T[]): T[] => {
 };
 
 // --- Komponen Utama Aplikasi ---
-export default function MatchingGame({ pairs }: { pairs: Record<Item, Item> }) {
+export default function MatchingGame({ pairs, onDone }: { pairs: Record<Item, Item>; onDone?: (correct: number, total: number) => void }) {
   // --- State Management ---
   const [leftItems, setLeftItems] = useState<Item[]>([]);
   const [rightItems, setRightItems] = useState<Item[]>([]);
@@ -68,6 +68,13 @@ export default function MatchingGame({ pairs }: { pairs: Record<Item, Item> }) {
   useEffect(() => {
     initializeGame();
   }, [solution]);
+
+  // Inform parent when results are finalized
+  useEffect(() => {
+    if (gamePhase === 'results' && typeof onDone === 'function') {
+      onDone(correctCount, totalPairs);
+    }
+  }, [gamePhase, correctCount, totalPairs, onDone]);
 
   // --- Logika untuk Menangani Pilihan ---
   const handleLeftSelect = (item: Item) => {
@@ -132,11 +139,12 @@ export default function MatchingGame({ pairs }: { pairs: Record<Item, Item> }) {
   };
 
   // --- Render Komponen ---
-  // Fallback jika tidak ada pasangan cukup
-  if (!pairs || Object.keys(pairs).length < 2) {
+  // Render gracefully even with minimal pairs (>=1)
+  const pairCount = pairs ? Object.keys(pairs).length : 0;
+  if (!pairs || pairCount === 0) {
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-6 text-center text-sm text-slate-600">
-        Tidak ada data cukup untuk game mencocokkan.
+        Kuis matching belum tersedia.
       </div>
     );
   }
@@ -146,7 +154,7 @@ export default function MatchingGame({ pairs }: { pairs: Record<Item, Item> }) {
       <div className="w-full max-w-4xl mx-auto">
         <header className="bg-white rounded-2xl border border-slate-200 p-6 md:p-8 text-center">
           <h1 className="text-3xl md:text-4xl font-bold text-slate-800">Game Mencocokkan</h1>
-          <p className="text-slate-600 mt-2">Pasangkan istilah dengan penjelasan yang tepat.</p>
+          <p className="text-slate-600 mt-2">Pasangkan istilah dengan penjelasan yang tepat. Tersedia {pairCount} pasangan.</p>
         </header>
 
         {/* --- Area Status & Aksi --- */}

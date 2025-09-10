@@ -6,12 +6,13 @@ import { prisma } from '@/lib/prisma';
 
 export async function GET() {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
+  const userId = (session as any)?.user?.id as string | undefined;
+  if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const accounts = await prisma.account.findMany({
-    where: { userId: session.user.id },
+    where: { userId },
     select: { provider: true },
   });
 

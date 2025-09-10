@@ -75,12 +75,32 @@ export default async function ReadMaterialPage(props: any) {
     : (Array.isArray(byMilestone?.[m + 1]) && byMilestone[m + 1].length > 0 ? `${roadmap.id}-${m + 1}-0` : undefined);
   const prefetchNext = nextSeed ? `https://picsum.photos/seed/${encodeURIComponent(nextSeed)}/1200/480` : undefined;
 
-  // Enforce quiz gating: to access milestone m (>0), previous quiz must be passed
+  // Milestone-access gating: to open milestone m (>0), ensure previous milestone (m-1)
+  // has all nodes completed AND the quiz recorded (no minimum score required).
   if (m > 0) {
-    const prevKey = `quiz-m-${m - 1}`;
-    const passed = (roadmap as any).progress?.completedTasks?.[prevKey]?.passed === true;
-    if (!passed) {
-      redirect(`/dashboard/roadmaps/${roadmap.id}/quiz?m=${m - 1}`);
+    const prevM = m - 1;
+    const prevMilestoneExpected = (Array.isArray(content?.milestones) && content.milestones[prevM])
+      ? (Array.isArray(content.milestones[prevM]?.subbab)
+          ? content.milestones[prevM].subbab.length
+          : (Array.isArray(content.milestones[prevM]?.sub_tasks)
+              ? content.milestones[prevM].sub_tasks.length
+              : 0))
+      : 0;
+    const tasks = ((roadmap as any).progress?.completedTasks || {}) as Record<string, any>;
+    let firstIncompleteIndex: number | null = null;
+    for (let i = 0; i < prevMilestoneExpected; i++) {
+      const k = `m-${prevM}-t-${i}`;
+      if (!tasks[k]) { firstIncompleteIndex = i; break; }
+    }
+    const prevQuizKey = `quiz-m-${prevM}`;
+    const hasPrevQuiz = !!tasks[prevQuizKey];
+
+    if (firstIncompleteIndex !== null) {
+      // Redirect to the first incomplete node of previous milestone
+      redirect(`/dashboard/roadmaps/${roadmap.id}/read?m=${prevM}&s=${firstIncompleteIndex}`);
+    } else if (!hasPrevQuiz) {
+      // All nodes done, but quiz not completed yet
+      redirect(`/dashboard/roadmaps/${roadmap.id}/quiz?m=${prevM}`);
     }
   }
 

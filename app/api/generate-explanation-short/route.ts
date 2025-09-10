@@ -8,8 +8,17 @@ import { PromptTemplate } from "@langchain/core/prompts";
 
 // Return a concise 3-4 sentence explanation
 const summarySchema = z.object({
-  explanation: z.string().describe("Ringkasan singkat (3-4 kalimat) yang padat dan mudah dipahami."),
+  explanation: z.string().describe("Ringkasan bersih (tanpa 'Body :' atau artefak) 3-4 kalimat yang padat dan mudah dipahami."),
 });
+
+function cleanText(raw: string): string {
+  return raw
+    .replace(/^\s*Body\s*:?/i, '')
+    .replace(/^\s*Penjelasan\s*:?/i, '')
+    .replace(/\*\s*\*/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,16 +33,20 @@ export async function POST(req: NextRequest) {
     const parser = StructuredOutputParser.fromZodSchema(summarySchema);
 
     const promptTemplate = new PromptTemplate({
-      template: `Anda adalah mentor yang menjelaskan topik secara ringkas.
+      template: `Anda adalah mentor yang merangkum topik secara ringkas dalam Bahasa Indonesia.
 
-Tuliskan ringkasan 3-4 kalimat yang padat dan jelas tentang topik berikut.
-Fokus pada inti konsep dan manfaat praktis. Hindari daftar poin; gunakan paragraf yang mengalir.
+ATURAN:
+1. Output 3–4 kalimat terpadu (bukan bullet list).
+2. Jangan gunakan heading seperti 'Body:' atau 'Penjelasan:'. Langsung mulai.
+3. Fokus: definisi inti, manfaat praktis, konteks pemakaian.
+4. Hindari istilah Inggris yang dapat diterjemahkan, kecuali istilah teknis mapan.
+5. Nada: informatif, lugas, tanpa pengulangan.
+6. Hanya kembalikan JSON sesuai skema.
 
-Topik: {topic}
-Rangkuman Subtopik (opsional): {details}
+TOPIK: {topic}
+SUBTOPIK (opsional): {details}
 
-Keluaran harus singkat, mudah dipahami pemula, dan langsung ke intinya.
-
+Hasilkan ringkasan.
 {format_instructions}`,
       inputVariables: ["topic", "details"],
       partialVariables: { format_instructions: parser.getFormatInstructions() },
@@ -46,9 +59,9 @@ Keluaran harus singkat, mudah dipahami pemula, dan langsung ke intinya.
     });
 
     const chain = promptTemplate.pipe(model).pipe(parser);
-    const result = await chain.invoke({ topic, details });
-
-    return NextResponse.json(result, { status: 200 });
+  const result = await chain.invoke({ topic, details });
+  const cleaned = { explanation: cleanText(result.explanation || '') };
+  return NextResponse.json(cleaned, { status: 200 });
   } catch (error) {
     console.error("Error generating short explanation:", error);
     return NextResponse.json({ error: "Failed to generate short explanation." }, { status: 500 });

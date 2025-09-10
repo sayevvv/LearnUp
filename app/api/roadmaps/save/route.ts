@@ -104,11 +104,11 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
 
-    // Fire-and-forget generation of first node (m=0,s=0) only.
+    // Fire-and-forget generation of first milestone (materials + quiz) only (milestone mode: m=0 with no s).
     try {
       const base = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'http://localhost:3000';
       // Do not await; non-blocking.
-      fetch(`${base}/api/roadmaps/${newRoadmap.id}/prepare-materials?m=0&s=0`, { method: 'POST' })
+      fetch(`${base}/api/roadmaps/${newRoadmap.id}/prepare-materials?m=0`, { method: 'POST' })
         .catch(() => { /* silent */ });
     } catch { /* ignore */ }
 
