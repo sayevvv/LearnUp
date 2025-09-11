@@ -7,11 +7,11 @@ import BottomNav from '../../components/BottomNav';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isReader = /^\/dashboard\/roadmaps\/[^/]+\/read$/.test(pathname || '');
+  const isReader = /^\/dashboard\/roadmaps\/[^/]+\/(read|quiz)$/.test(pathname || '');
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-black">
-      {!isReader && (
+  {!isReader && (
         // Hide sidebar on small screens; show on lg+ only
         <div className="shrink-0 hidden lg:block">
           <DashboardSidebar />
@@ -22,7 +22,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <main className="min-w-0 min-h-0 flex-1 overflow-hidden bg-white dark:bg-black pb-16 lg:pb-0">
         {children}
       </main>
-      {!isReader && (
+  {!isReader && (
         // Mobile bottom navbar
         <div className="lg:hidden">
           <BottomNav />

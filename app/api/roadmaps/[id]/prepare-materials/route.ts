@@ -7,7 +7,6 @@ import { PromptTemplate } from "@langchain/core/prompts";
 import { githubChatCompletion } from '@/lib/ai/githubModels';
 import { HarmBlockThreshold, HarmCategory } from "@google/generative-ai";
 import { assertSameOrigin } from "@/lib/security";
-import { deriveMatchingPairs } from '@/lib/quiz';
 
 // Replace undefined values (including sparse array holes) with null so Prisma JSON is valid
 function sanitizeForJson(value: any): any {
@@ -236,9 +235,8 @@ Instruksi:
       return `Subbab ${idx + 1}: ${title}\nBody:\n${body}${pts}`;
     });
     const quizContext = quizContextParts.join('\n\n---\n\n');
-    // Decide quiz type by milestone parity: 0-based even (1st, 3rd, ...) => matching; odd => MCQ
-  // 1-based parity: milestone #2, #4, ... (mi+1 even) => matching; #1, #3, ... => MCQ
-  const quizType: 'mcq' | 'match' = ((mi + 1) % 2 === 0) ? 'match' : 'mcq';
+    // Decide quiz type by milestone parity: 0-based even (1st, 3rd, ...) => MCQ; odd => matching
+  const quizType: 'mcq' | 'match' = (mi % 2 === 0) ? 'mcq' : 'match';
     let quizPayload: any = null;
     try {
       if (quizType === 'mcq') {
@@ -294,30 +292,17 @@ Konteks Materi:
         if (start !== -1 && end !== -1 && end > start) raw = raw.slice(start, end + 1);
         const parsed = JSON.parse(raw);
         const items = Array.isArray(parsed) ? parsed : [];
-        let pairs = items
+        const pairs = items
           .filter((it: any) => it && typeof it.term === 'string' && typeof it.definition === 'string')
           .map((it: any) => ({ term: String(it.term).slice(0, 120), definition: String(it.definition).slice(0, 240) }))
           .slice(0, 6);
-        if (pairs.length < 2) {
-          // Deterministic fallback using derived pairs from generated materials
-          try {
-            const merged: any = { glossary: [], points: [], body: '' };
-            for (const it of (newMaterialsMatrix[mi] || [])) {
-              if (Array.isArray(it?.glossary)) merged.glossary.push(...it.glossary);
-              if (Array.isArray(it?.points)) merged.points.push(...it.points);
-              if (typeof it?.body === 'string') merged.body += (merged.body ? '\n\n' : '') + it.body;
-            }
-            const obj = deriveMatchingPairs(merged);
-            pairs = Object.keys(obj).map(k => ({ term: k.slice(0,120), definition: String(obj[k]).slice(0,240) })).slice(0, 6);
-          } catch {}
-        }
         if (pairs.length >= 2) quizPayload = { type: 'match', data: pairs };
       }
     } catch {}
 
     // Heuristic fallback if generation failed or insufficient data
     if (!quizPayload) {
-      // As a last resort, fallback to MCQ synthesized from subbab titles
+      // Fallback to MCQ synthesized from subbab titles
       try {
         const subsTitles: string[] = subs.slice(0, 6);
         const choicesPool = [...subsTitles];

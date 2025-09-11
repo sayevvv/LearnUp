@@ -31,7 +31,9 @@ export default function QuizClient({ roadmapId, milestoneIndex, topic, nextHref,
   const [locked, setLocked] = React.useState(false);
   const [regenLoading, setRegenLoading] = React.useState(false);
   const [regenError, setRegenError] = React.useState<string | null>(null);
-  const [regenAttempt, setRegenAttempt] = React.useState(0);
+  // storage key for persisting quiz state per roadmap+milestone
+  const storageKey = React.useMemo(() => `quizState:${roadmapId}:${milestoneIndex}`, [roadmapId, milestoneIndex]);
+  const restoredRef = React.useRef(false);
 
   const allAnswered = React.useMemo(() => {
     if (!questions.length) return false;
@@ -82,7 +84,7 @@ export default function QuizClient({ roadmapId, milestoneIndex, topic, nextHref,
     (async () => {
       setLoading(true); setError(null);
       try {
-        const res = await fetch(`/api/roadmaps/${roadmapId}/quiz?m=${milestoneIndex}&force=1`);
+        const res = await fetch(`/api/roadmaps/${roadmapId}/quiz?m=${milestoneIndex}`);
         if (!res.ok) throw new Error('Gagal membuat kuis');
         const data = await res.json();
         if (!active) return;
@@ -102,6 +104,41 @@ export default function QuizClient({ roadmapId, milestoneIndex, topic, nextHref,
           setPairs(null);
           setQuestions(Array.isArray(data.questions) ? data.questions : []);
         }
+        // Attempt to restore previous state from storage (once)
+        try {
+          if (!restoredRef.current) {
+            const raw = typeof window !== 'undefined' ? localStorage.getItem(storageKey) : null;
+            if (raw) {
+              const saved = JSON.parse(raw);
+              if (saved && saved.type === 'mcq' && Array.isArray(data.questions)) {
+                setAnswers(saved.answers || {});
+                if (saved.submitted) {
+                  setSubmitted(true);
+                  setLocked(true);
+                  const sc = typeof saved.score === 'number' ? saved.score : 0;
+                  setScore(sc);
+                  // quick local analysis without explanations
+                  try { setAnalysisText(buildAnalysisMCQ(Array.isArray(data.questions) ? data.questions : [], saved.answers || {}, null, sc)); } catch {}
+                  setAnalysisLoading(false);
+                }
+              }
+              if (saved && saved.type === 'match') {
+                if (saved.submitted) {
+                  setSubmitted(true);
+                  setLocked(true);
+                  const sc = typeof saved.score === 'number' ? saved.score : 0;
+                  setScore(sc);
+                  const totalPairs = data && Array.isArray(data.pairs) ? data.pairs.length : (pairs ? Object.keys(pairs).length : 0);
+                  const approxCorrect = Math.max(0, Math.min(totalPairs, Math.round((sc / 100) * (totalPairs || 0))));
+                  try { setAnalysisText(buildAnalysisMatch(approxCorrect, totalPairs || 0)); } catch {}
+                  setAnalysisLoading(false);
+                }
+                // answers for matching are not persisted granularly; keeping score & status is enough
+              }
+            }
+            restoredRef.current = true;
+          }
+        } catch {}
         // Load previous score if exists on progress
         try {
           const p = await fetch(`/api/roadmaps/${roadmapId}/progress`);
@@ -117,6 +154,16 @@ export default function QuizClient({ roadmapId, milestoneIndex, topic, nextHref,
     })();
     return () => { active = false; };
   }, [roadmapId, milestoneIndex]);
+
+  // Persist state changes to localStorage
+  React.useEffect(() => {
+    if (loading) return;
+    try {
+      const payload: any = { type, submitted, locked, score };
+      if (type === 'mcq') payload.answers = answers;
+      localStorage.setItem(storageKey, JSON.stringify(payload));
+    } catch {}
+  }, [loading, storageKey, type, answers, submitted, locked, score]);
 
   const submit = async () => {
     if (submitting) return;
@@ -166,6 +213,17 @@ export default function QuizClient({ roadmapId, milestoneIndex, topic, nextHref,
     setSubmitting(false);
   };
 
+  const resetAll = React.useCallback(() => {
+    setSubmitted(false);
+    setScore(null);
+    setExplanations(null);
+    setAnalysisText(null);
+    setAnalysisLoading(false);
+    setLocked(false);
+    setAnswers({});
+    try { localStorage.removeItem(storageKey); } catch {}
+  }, [storageKey]);
+
   if (loading) return <div className="text-slate-500">Membuat kuis…</div>;
   if (error) return <div className="text-red-600">{error}</div>;
   if (type === 'mcq' && !questions.length) return <div className="text-slate-500">Kuis belum tersedia.</div>;
@@ -176,39 +234,28 @@ export default function QuizClient({ roadmapId, milestoneIndex, topic, nextHref,
       if (regenLoading) return;
       setRegenLoading(true);
       setRegenError(null);
-      const maxAttempts = 3;
-      let attempt = 0;
       try {
-        while (attempt < maxAttempts) {
-          attempt += 1; setRegenAttempt(attempt);
-          const res = await fetch(`/api/roadmaps/${roadmapId}/quiz?m=${milestoneIndex}&force=1`);
-          if (!res.ok) throw new Error('Gagal generate ulang kuis');
-          const data = await res.json();
-          if (data.type === 'match') {
-            const arr: any[] = Array.isArray(data.pairs) ? data.pairs : [];
-            const obj: Record<string, string> = {};
-            for (const it of arr) {
-              if (it && typeof it.term === 'string' && typeof it.definition === 'string') obj[it.term] = it.definition;
-            }
-            const count = Object.keys(obj).length;
-            if (count >= 2) {
-              setPairs(obj);
-              // reset attempt state when new content arrives
-              setSubmitted(false); setScore(null); setExplanations(null); setAnalysisText(null); setAnalysisLoading(false); setLocked(false); setAnswers({});
-              break;
-            }
-          } else if (data.type === 'mcq') {
-            // If backend falls back to MCQ, reflect that change and stop retrying
-            setType('mcq');
-            setPairs(null);
-            setQuestions(Array.isArray(data.questions) ? data.questions : []);
-            setSubmitted(false); setScore(null); setExplanations(null); setAnalysisText(null); setAnalysisLoading(false); setLocked(false); setAnswers({});
-            break;
+        const res = await fetch(`/api/roadmaps/${roadmapId}/quiz?m=${milestoneIndex}`);
+        if (!res.ok) throw new Error('Gagal generate ulang kuis');
+        const data = await res.json();
+        if (data.type === 'match') {
+          const arr: any[] = Array.isArray(data.pairs) ? data.pairs : [];
+          const obj: Record<string, string> = {};
+          for (const it of arr) {
+            if (it && typeof it.term === 'string' && typeof it.definition === 'string') obj[it.term] = it.definition;
           }
-          // Wait a bit before retrying
-          if (attempt < maxAttempts) await new Promise(r => setTimeout(r, 500));
+          setPairs(obj);
+          // reset attempt state when new content arrives
+          setSubmitted(false); setScore(null); setExplanations(null); setAnalysisText(null); setAnalysisLoading(false); setLocked(false); setAnswers({});
+          try { localStorage.removeItem(storageKey); } catch {}
+        } else if (data.type === 'mcq') {
+          // In rare cases parity shifts or fallback returns MCQ; reflect that
+          setType('mcq');
+          setPairs(null);
+          setQuestions(Array.isArray(data.questions) ? data.questions : []);
+          setSubmitted(false); setScore(null); setExplanations(null); setAnalysisText(null); setAnalysisLoading(false); setLocked(false); setAnswers({});
+          try { localStorage.removeItem(storageKey); } catch {}
         }
-        if (attempt >= maxAttempts) setRegenError('Gagal menghasilkan pasangan yang cukup. Coba lagi nanti.');
       } catch (e: any) {
         setRegenError(e?.message || 'Gagal generate ulang kuis');
       } finally {
@@ -217,24 +264,39 @@ export default function QuizClient({ roadmapId, milestoneIndex, topic, nextHref,
     };
     return (
       <div>
-        <MatchingGame
-          pairs={pairs}
-          onDone={async (correct, total) => {
-            const sc = total ? Math.round((correct / total) * 100) : 0;
-            setScore(sc);
-            setSubmitted(true);
-            setAnalysisLoading(true);
-            try {
-              const resp = await fetch(`/api/roadmaps/${roadmapId}/quiz`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ milestoneIndex, score: sc, passed: sc >= 60 })
-              });
-              if (resp?.ok) setLastSavedScore(sc);
-            } catch {}
-            setAnalysisText(buildAnalysisMatch(correct, total));
-            setAnalysisLoading(false);
-          }}
-        />
+        {!submitted ? (
+          <MatchingGame
+            pairs={pairs}
+            onDone={async (correct, total) => {
+              const sc = total ? Math.round((correct / total) * 100) : 0;
+              setScore(sc);
+              setSubmitted(true);
+              setAnalysisLoading(true);
+              try {
+                const resp = await fetch(`/api/roadmaps/${roadmapId}/quiz`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ milestoneIndex, score: sc, passed: sc >= 60 })
+                });
+                if (resp?.ok) setLastSavedScore(sc);
+              } catch {}
+              setAnalysisText(buildAnalysisMatch(correct, total));
+              setAnalysisLoading(false);
+            }}
+          />
+        ) : (
+          <div className="mb-4 rounded-xl border border-slate-200 p-4 shadow-sm bg-white/90 dark:border-white/10 dark:bg-white/5">
+            <div className="mb-1 text-sm font-semibold text-slate-900 dark:text-white">Hasil kuis tersimpan</div>
+            {typeof score === 'number' && (
+              <div className={`text-sm font-semibold ${score >= 60 ? 'text-green-600' : 'text-slate-700'}`}>Skor: {score}%</div>
+            )}
+            {analysisText && (
+              <p className="mt-2 text-sm leading-6 text-slate-700 dark:text-neutral-300">{analysisText}</p>
+            )}
+            <div className="mt-3">
+              <button onClick={resetAll} className="rounded-lg bg-slate-200 text-slate-800 px-4 py-2 text-sm font-semibold hover:bg-slate-300">Coba Lagi</button>
+            </div>
+          </div>
+        )}
         {pairsCount < 2 && (
           <div className="mt-4 flex flex-col items-center gap-2">
             <button
@@ -242,7 +304,7 @@ export default function QuizClient({ roadmapId, milestoneIndex, topic, nextHref,
               disabled={regenLoading}
               className="rounded-lg bg-blue-600 text-white px-4 py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-60"
             >
-              {regenLoading ? `Menghasilkan… (${regenAttempt}/3)` : 'Generate ulang kuis'}
+              {regenLoading ? 'Menghasilkan…' : 'Generate ulang kuis'}
             </button>
             {regenError && <div className="text-sm text-red-600">{regenError}</div>}
           </div>
@@ -345,7 +407,7 @@ export default function QuizClient({ roadmapId, milestoneIndex, topic, nextHref,
           )}
           {submitted && (
             <>
-              <button onClick={() => { setSubmitted(false); setScore(null); setExplanations(null); setAnalysisText(null); setAnalysisLoading(false); setLocked(false); setAnswers({}); }} className="rounded-lg bg-slate-200 text-slate-800 px-4 py-2 text-sm font-semibold hover:bg-slate-300">Coba Lagi</button>
+              <button onClick={resetAll} className="rounded-lg bg-slate-200 text-slate-800 px-4 py-2 text-sm font-semibold hover:bg-slate-300">Coba Lagi</button>
             </>
           )}
           {submitted && score !== null && (

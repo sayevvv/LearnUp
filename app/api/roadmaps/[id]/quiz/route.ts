@@ -30,7 +30,6 @@ export async function GET(req: NextRequest, ctx: any) {
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const url = new URL(req.url);
   const m = Number(url.searchParams.get('m') || '0');
-  const force = url.searchParams.get('force') === '1';
 
   const roadmap = await (prisma as any).roadmap.findFirst({ where: { id, userId } });
   if (!roadmap) return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -47,27 +46,7 @@ export async function GET(req: NextRequest, ctx: any) {
   const context = contextParts.join('\n\n---\n\n');
 
   const storedQuizzes: any[] = Array.isArray(content.quizzesByMilestone) ? content.quizzesByMilestone : [];
-  // 1-based parity: second milestone (m=1) and other even numbers -> matching
-  const parityType: 'mcq' | 'match' = (((m + 1) % 2) === 0) ? 'match' : 'mcq';
-  // Local deterministic fallback from materials: title -> first sentence of body
-  function buildPairsFromMaterials(): Array<{term:string;definition:string}> {
-    const seen = new Set<string>();
-    const out: Array<{term:string;definition:string}> = [];
-    for (const it of materials) {
-      const term = String(it?.title || '').trim().slice(0, 120);
-      const body = String(it?.body || '');
-      const firstSentence = body.split(/(?<=[.!?])\s+/)[0]?.trim() || '';
-      const def = firstSentence || body.slice(0, 180);
-      const key = term.toLowerCase();
-      if (term && def && def.length >= 8 && !seen.has(key)) {
-        out.push({ term, definition: def.slice(0, 240) });
-        seen.add(key);
-      }
-      if (out.length >= 6) break;
-    }
-    // Ensure minimum quality: drop pairs where definition equals term or too short
-    return out.filter(p => p.definition.toLowerCase() !== p.term.toLowerCase() && p.definition.length >= 8);
-  }
+  const parityType: 'mcq' | 'match' = (m % 2 === 0) ? 'mcq' : 'match';
   // Helper to build/persist matching from context (threshold >= 2)
   async function buildAndPersistMatchFromContext(): Promise<Array<{term:string;definition:string}>|null> {
     try {
@@ -118,7 +97,7 @@ Konteks Materi:
 
   // If stored quiz exists, return it — but if parity expects 'match' and stored is MCQ, try to upgrade to match once
   const stored = storedQuizzes[m];
-  if (!force && stored) {
+  if (stored) {
     // Legacy array (assume MCQ)
     if (Array.isArray(stored) && stored.length) {
       if (parityType === 'match') {
@@ -241,20 +220,10 @@ Konteks Materi:
       if (start !== -1 && end !== -1 && end > start) text = text.slice(start, end + 1);
       const parsed = JSON.parse(text);
       const items = Array.isArray(parsed) ? parsed : [];
-      let pairs = items
+      const pairs = items
         .filter((it: any) => it && typeof it.term === 'string' && typeof it.definition === 'string')
         .map((it: any) => ({ term: String(it.term).slice(0, 120), definition: String(it.definition).slice(0, 240) }))
         .slice(0, 6);
-      // Dedupe by term and drop low-quality defs
-      if (pairs.length) {
-        const seen = new Set<string>();
-        pairs = pairs.filter(p => {
-          const key = p.term.toLowerCase();
-          const ok = !!p.term && !!p.definition && p.definition.length >= 8 && p.definition.toLowerCase() !== p.term.toLowerCase() && !seen.has(key);
-          if (ok) seen.add(key);
-          return ok;
-        });
-      }
       // Accept minimal viable 2+ pairs; if insufficient, fallback to deterministic derivation
       if (pairs.length >= 2) {
         const newQuizzes: any[] = Array.isArray(content.quizzesByMilestone) ? [...content.quizzesByMilestone] : [];
@@ -272,11 +241,7 @@ Konteks Materi:
           if (typeof it?.body === 'string') merged.body += (merged.body ? '\n\n' : '') + it.body;
         }
         const obj = deriveMatchingPairs(merged);
-        let dpairs = Object.keys(obj).map(k => ({ term: k.slice(0,120), definition: String(obj[k]).slice(0,240) })).slice(0, 6);
-        // If still insufficient, construct pairs from materials titles/first sentences
-        if (dpairs.length < 2) {
-          dpairs = buildPairsFromMaterials();
-        }
+        const dpairs = Object.keys(obj).map(k => ({ term: k.slice(0,120), definition: String(obj[k]).slice(0,240) })).slice(0, 6);
         if (dpairs.length >= 2) {
           const newQuizzes: any[] = Array.isArray(content.quizzesByMilestone) ? [...content.quizzesByMilestone] : [];
           newQuizzes[m] = { type: 'match', data: dpairs };
