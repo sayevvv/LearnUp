@@ -4,6 +4,7 @@ import RoadmapCard from '@/components/RoadmapCard';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/auth.config';
 import { prisma } from '@/lib/prisma';
+import BrowseSignupClient from './signup-client';
 
 type BrowseParams = { q?: string; sort?: string; page?: string; pageSize?: string };
 async function getData(params: BrowseParams) {
@@ -86,6 +87,7 @@ export default async function BrowsePage({ searchParams }: { searchParams: Promi
   ]);
   const s: any = session || {};
 
+  const isLoggedIn = !!s?.user?.id;
   return (
     <div className="h-full overflow-y-auto bg-white dark:bg-slate-900">
       <header className="p-6 sm:p-8 border-b border-slate-200 dark:border-slate-800 sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm z-10">
@@ -102,22 +104,29 @@ export default async function BrowsePage({ searchParams }: { searchParams: Promi
           <input type="hidden" name="pageSize" value={pageSize} />
         </form>
       </header>
-  <div className="p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr">
-        {data?.items?.map((item: any) => {
-          const own = s?.user?.id && s.user.id === item.userId;
-  return (
-    <div key={item.id} className="h-full">
-              <RoadmapCard
-                item={item}
-                hideInlineTopics={false}
-                hideRatings={own}
-                own={!!own}
-        showBottomChip
-        bottomMetaAlign
-              />
-            </div>
-          );
-        })}
+      <div className="flex gap-8 p-6 md:p-8">
+        <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-fr">
+          {data?.items?.map((item: any) => {
+            const own = s?.user?.id && s.user.id === item.userId;
+            return (
+              <div key={item.id} className="h-full">
+                <RoadmapCard
+                  item={item}
+                  hideInlineTopics={false}
+                  hideRatings={own}
+                  own={!!own}
+                  showBottomChip
+                  bottomMetaAlign
+                />
+              </div>
+            );
+          })}
+        </div>
+        {!isLoggedIn && (
+          <div className="hidden xl:block w-80 shrink-0 pt-2">
+            <BrowseSignupClient />
+          </div>
+        )}
       </div>
       {/* Pagination */}
       <div className="px-8 pb-10 flex items-center justify-between text-sm text-slate-600 dark:text-slate-400">

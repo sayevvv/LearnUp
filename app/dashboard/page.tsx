@@ -97,20 +97,36 @@ export default async function DashboardHomePage() {
     <div className="h-full overflow-y-auto bg-white dark:bg-black">
       {/* Hero CTA */}
       <section className="relative overflow-hidden">
-        {/* Decorative gradient blobs (pure CSS, no network) */}
-        <div className="pointer-events-none absolute inset-0 [mask-image:radial-gradient(circle_at_center,white,transparent)] bg-[conic-gradient(at_30%_40%,theme(colors.blue.500),theme(colors.sky.400),theme(colors.orange.400),theme(colors.blue.500))] opacity-30 dark:opacity-25" aria-hidden />
+        {/* Decorative mesh gradient background */}
+        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+          {/* Layered radial blobs for mesh effect */}
+          <div className="absolute -top-40 -left-32 w-[65%] max-w-[900px] aspect-square bg-[radial-gradient(circle_at_center,theme(colors.blue.800)_0%,transparent_70%)] blur-3xl opacity-40" />
+          <div className="absolute top-1/3 -right-40 w-[60%] max-w-[800px] aspect-square bg-[radial-gradient(circle_at_center,theme(colors.sky.400)_0%,transparent_70%)] blur-3xl opacity-35" />
+          <div className="absolute bottom-[-25%] left-1/4 w-[55%] max-w-[780px] aspect-square bg-[radial-gradient(circle_at_center,theme(colors.blue.900)_0%,transparent_75%)] blur-[110px] opacity-50" />
+          {/* White highlight to make light tones more dominant */}
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[55%] max-w-[780px] aspect-square bg-[radial-gradient(circle_at_center,white_0%,rgba(255,255,255,0.6)_35%,transparent_70%)] blur-[90px] opacity-50 mix-blend-screen" />
+          {/* Secondary subtle white mist */}
+          <div className="absolute bottom-0 right-1/3 w-[40%] aspect-square bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.9)_0%,transparent_65%)] blur-[100px] opacity-40 mix-blend-screen" />
+          {/* Overlay gradient tuned lighter */}
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-900/40 via-sky-300/25 to-white/50 mix-blend-plus-lighter opacity-70" />
+          {/* Soft radial mask for fade edges (lighter center) */}
+          <div className="absolute inset-0 [mask-image:radial-gradient(circle_at_center,white_70%,transparent_90%)] bg-white/20 dark:bg-white/10" />
+        </div>
         <div className="mx-auto max-w-5xl px-6 py-14 sm:py-16 text-center relative">
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Buat <span className="bg-gradient-to-r from-sky-500 via-blue-500 to-orange-400 bg-clip-text text-transparent">Rencana Belajarmu Sendiri</span>
+            Buat <span className="bg-gradient-to-r from-blue-800 via-blue-600 to-sky-400 bg-clip-text text-transparent">Rencana Belajarmu Sendiri</span>
           </h1>
           <p className="mt-3 text-sm md:text-base text-slate-600 dark:text-neutral-300 max-w-2xl mx-auto">Mulai perjalanan belajar terstruktur yang disesuaikan dengan tujuanmu, dan kembangkan skill secara fokus.</p>
-          <div className="mt-6 flex justify-center gap-3">
-            <GuardedLink href="/dashboard/new" className="group relative inline-flex items-center justify-center">
-              <span className="absolute -inset-0.5 rounded-xl bg-gradient-to-r from-sky-500 via-indigo-500 to-orange-400 opacity-70 blur-sm transition-all duration-300 group-hover:opacity-90 group-hover:blur-md" aria-hidden />
-              <span className="relative inline-flex items-center gap-2 rounded-lg bg-white/90 px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-sm ring-1 ring-slate-200 transition-colors group-hover:bg-white dark:bg-white/5 dark:text-white dark:ring-white/10">Buat Rencana Belajar</span>
-    
+          <div className="mt-6 flex flex-col sm:flex-row justify-center gap-3">
+            <GuardedLink
+              href="/dashboard/new"
+              className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-blue-800 via-blue-600 to-sky-400 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-sky-500/30 hover:shadow-sky-500/40 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 dark:focus:ring-offset-0"
+            >
+              Buat Rencana Belajar
             </GuardedLink>
-            <LidmInfoButton />
+            <div className="inline-flex">
+              <LidmInfoButton />
+            </div>
           </div>
         </div>
       </section>
