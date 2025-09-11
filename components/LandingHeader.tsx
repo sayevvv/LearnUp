@@ -52,8 +52,8 @@ export default function LandingHeader() {
           <Link href="/" className="pl-4 pr-2 flex items-center overflow-visible select-none">
             <div className="origin-left -my-1">
               <Image
-                src={isDark ? '/logo/light.png' : '/logo/dark.png'}
-                alt="NextStep"
+                src={'/logo/logolearnup.webp'}
+                alt="LearnUp"
                 width={120}
                 height={24}
                 className="h-6 w-auto"

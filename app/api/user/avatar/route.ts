@@ -12,7 +12,8 @@ const MAX_BASE64_SIZE = 1024 * 1024 * 2; // 2MB approx
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
+  const userId = (session as any)?.user?.id as string | undefined;
+  if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   if (!isSameOrigin(req as any)) {
@@ -52,6 +53,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Bad request' }, { status: 400 });
   }
 
-  await prisma.user.update({ where: { id: session.user.id }, data: { image: url! } });
+  await prisma.user.update({ where: { id: userId }, data: { image: url! } });
   return NextResponse.json({ success: true, image: url }, { status: 200 });
 }

@@ -6,10 +6,30 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { StructuredOutputParser } from "langchain/output_parsers";
 import { PromptTemplate } from "@langchain/core/prompts";
 
-// Skema output yang sederhana, hanya berisi teks penjelasan
+// Skema output sederhana
 const explanationSchema = z.object({
-  explanation: z.string().describe("Penjelasan materi yang detail dan mudah dipahami untuk pemula."),
+  explanation: z.string().describe("Penjelasan materi yang bersih (tanpa heading 'Body :' atau artefak), rapi, detail, dan mudah dipahami pemula."),
 });
+
+function cleanText(raw: string): string {
+  let txt = raw
+    // Hilangkan label umum yang sering bocor
+    .replace(/^\s*Body\s*:?/i, '')
+    .replace(/^\s*Penjelasan\s*:?/i, '')
+    // Hilangkan bullet salah format seperti '* *'
+    .replace(/\*\s*\*/g, '')
+    // Normalisasi bold markdown yang rusak (misal ** kata **)
+    .replace(/\*\*\s+/g, '**')
+    .replace(/\s+\*\*/g, '**')
+    // Hilangkan bold kosong
+    .replace(/\*\*\s*\*\*/g, '')
+    // Spasi berlebih
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  // Jika masih diawali tanda kutip atau backtick aneh, bersihkan ringan
+  txt = txt.replace(/^"+/, '').replace(/"+$/, '');
+  return txt.trim();
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,23 +42,27 @@ export async function POST(req: NextRequest) {
 
     const parser = StructuredOutputParser.fromZodSchema(explanationSchema);
 
-    // Prompt khusus untuk menjadi "guru" atau "mentor"
+    // Prompt diperketat untuk menghindari kebocoran format & enforce Bahasa Indonesia
     const promptTemplate = new PromptTemplate({
-        template: `Anda adalah seorang mentor dan guru yang ahli dalam menjelaskan konsep teknis kepada pemula.
-        
-        Tugas Anda adalah mengambil sebuah topik dan ringkasan singkat, lalu mengembangkannya menjadi penjelasan yang detail, komprehensif, dan mudah dipahami.
-        
-        Gunakan analogi, contoh sederhana, dan jelaskan "mengapa" konsep ini penting. Susun dalam format paragraf yang mengalir dengan baik.
+      template: `Anda adalah mentor ahli yang menjelaskan konsep teknis kepada pemula dalam Bahasa Indonesia yang jelas, natural, dan runtut.
 
-        Topik: {topic}
-        Ringkasan Singkat: {details}
+ATURAN:
+1. Gunakan Bahasa Indonesia. Jangan gunakan bahasa Inggris kecuali istilah teknis yang tidak wajar diterjemahkan.
+2. Jangan tampilkan heading seperti "Body:", "Penjelasan:", atau label lain—langsung mulai dengan isi.
+3. Jangan gunakan daftar bullet kecuali benar-benar perlu. Jika konsep enumerasi penting, gunakan kalimat transisi atau bullet konsisten dengan dash (-) bukan asterisk ganda.
+4. Jangan menghasilkan markdown dekoratif yang tidak diperlukan (hindari ** tebal ** kecuali menyorot istilah penting). Jangan ada blok kode kecuali diminta (tidak diminta di sini).
+5. Struktur ideal: (a) Konteks & definisi inti (b) Mengapa penting (c) Cara kerja / inti konsep (d) Contoh sederhana (e) Kesalahan umum / tips praktis (f) Ringkas ulang inti.
+6. Panjang: komprehensif namun fokus. Hindari pengulangan tidak perlu.
+7. Hindari filler seperti "Dalam konteks ini" berulang.
+8. Output HARUS sesuai skema JSON (field explanation), tanpa menambahkan field lain.
 
-        Sekarang, jabarkan materi tersebut menjadi penjelasan yang panjang dan mendalam.
-        
-        {format_instructions}
-        `,
-        inputVariables: ["topic", "details"],
-        partialVariables: { format_instructions: parser.getFormatInstructions() },
+TOPIK: {topic}
+RINGKASAN AWAL: {details}
+
+Tulis penjelasan sesuai aturan.
+{format_instructions}`,
+      inputVariables: ["topic", "details"],
+      partialVariables: { format_instructions: parser.getFormatInstructions() },
     });
     
     const model = new ChatGoogleGenerativeAI({
@@ -49,12 +73,9 @@ export async function POST(req: NextRequest) {
     
     const chain = promptTemplate.pipe(model).pipe(parser);
 
-    const result = await chain.invoke({
-      topic: topic,
-      details: details,
-    });
-
-    return NextResponse.json(result, { status: 200 });
+  const result = await chain.invoke({ topic, details });
+  const cleaned = { explanation: cleanText(result.explanation || '') };
+  return NextResponse.json(cleaned, { status: 200 });
 
   } catch (error) {
     console.error("Error generating explanation:", error);

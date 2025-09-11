@@ -1,17 +1,12 @@
 // app/dashboard/page.tsx
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth.config';
 import { prisma } from '@/lib/prisma';
-import Link from 'next/link';
-import { ChevronRight } from 'lucide-react';
 import InProgressScroller from '@/components/InProgressScroller';
 import DeveloperChoiceSidebar from '../../components/DeveloperChoiceSidebar';
 import DashboardTabs from '@/components/DashboardTabs';
+import Link from 'next/link';
 import GuardedLink from '@/components/GuardedLink';
-import LandingHeader from '@/components/LandingHeader';
-import Image from 'next/image';
-import { Suspense } from 'react';
 import DashboardHydrator from '@/components/DashboardHydrator';
+import LidmInfoButton from '@/components/LidmInfoButton';
 
 // Async section components (server) ------------------
 async function InProgressSection({ promise }: { promise: Promise<any[]> }) {
@@ -94,45 +89,12 @@ async function loadForYou(userId?: string) {
 export const revalidate = 60; // cache static-ish parts for 1 minute
 
 export default async function DashboardHomePage() {
-  const session = (await getServerSession(authOptions as any)) as any;
-  const s: any = session || {};
-
   // Only render shell + minimal popular/topics (fast query) then hydrate client side
   const popularInitial = await loadPopular();
   const topicsInitial = await loadRecommendedTopics();
 
   return (
     <div className="h-full overflow-y-auto bg-white dark:bg-black">
-      {/* Global header with login button for guests */}
-      <div className="sticky top-0 z-40">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-3 flex items-center justify-between border-b border-slate-200/80 dark:border-slate-800/80 bg-white/80 dark:bg-black/60 backdrop-blur">
-          <Link href="/dashboard" className="text-base font-semibold text-slate-900 dark:text-white">NextStep</Link>
-          {s?.user?.id ? (
-            <Link
-              href="/dashboard/profile"
-              className="group inline-flex items-center gap-3 rounded-full border border-slate-200 bg-white/60 px-2 py-1 pr-3 text-sm text-slate-700 backdrop-blur hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-neutral-200 dark:hover:bg-white/10"
-            >
-              {/* Avatar */}
-              {s.user?.image ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={s.user.image}
-                  alt={s.user.name || 'User'}
-                  className="h-8 w-8 rounded-full object-cover ring-1 ring-slate-200 dark:ring-white/10"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-white text-xs font-semibold dark:bg-white dark:text-black">
-                  {(s.user?.name || 'U').charAt(0).toUpperCase()}
-                </span>
-              )}
-              <span className="hidden md:inline-block max-w-[140px] truncate font-medium">{s.user?.name || 'Profil'}</span>
-            </Link>
-          ) : (
-            <Link href="/login?callbackUrl=%2Fdashboard" className="rounded-full bg-slate-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-800 dark:bg-white dark:text-black dark:hover:bg-neutral-200">Masuk</Link>
-          )}
-        </div>
-      </div>
       {/* Hero CTA */}
       <section className="relative overflow-hidden">
         {/* Decorative gradient blobs (pure CSS, no network) */}
@@ -142,11 +104,13 @@ export default async function DashboardHomePage() {
             Buat <span className="bg-gradient-to-r from-sky-500 via-blue-500 to-orange-400 bg-clip-text text-transparent">Rencana Belajarmu Sendiri</span>
           </h1>
           <p className="mt-3 text-sm md:text-base text-slate-600 dark:text-neutral-300 max-w-2xl mx-auto">Mulai perjalanan belajar terstruktur yang disesuaikan dengan tujuanmu, dan kembangkan skill secara fokus.</p>
-          <div className="mt-6 flex justify-center">
+          <div className="mt-6 flex justify-center gap-3">
             <GuardedLink href="/dashboard/new" className="group relative inline-flex items-center justify-center">
               <span className="absolute -inset-0.5 rounded-xl bg-gradient-to-r from-sky-500 via-indigo-500 to-orange-400 opacity-70 blur-sm transition-all duration-300 group-hover:opacity-90 group-hover:blur-md" aria-hidden />
-              <span className="relative inline-flex items-center gap-2 rounded-lg bg-white/90 px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-sm ring-1 ring-slate-200 transition-colors group-hover:bg-white dark:bg-white/5 dark:text-white dark:ring-white/10">Buat Roadmap</span>
+              <span className="relative inline-flex items-center gap-2 rounded-lg bg-white/90 px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-sm ring-1 ring-slate-200 transition-colors group-hover:bg-white dark:bg-white/5 dark:text-white dark:ring-white/10">Buat Rencana Belajar</span>
+    
             </GuardedLink>
+            <LidmInfoButton />
           </div>
         </div>
       </section>

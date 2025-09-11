@@ -43,10 +43,11 @@ export async function POST(req: NextRequest, ctx: any) {
   try { assertSameOrigin(req as any); } catch (e: any) { return NextResponse.json({ error: 'Forbidden' }, { status: e?.status || 403 }); }
   const { id } = await (ctx as any).params;
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const userId = (session as any)?.user?.id as string | undefined;
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { publish } = await req.json();
 
-  const roadmap = await prisma.roadmap.findFirst({ where: { id, userId: session.user.id } });
+  const roadmap = await prisma.roadmap.findFirst({ where: { id, userId } });
   if (!roadmap) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   if (publish) {

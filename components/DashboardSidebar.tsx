@@ -72,9 +72,8 @@ export default function DashboardSidebar() {
       <div className={`flex w-full ${expanded ? 'items-center' : 'items-center'} justify-between`}>
         <Link href="/" title="Beranda" className={`${expanded ? 'flex items-center gap-2' : ''}`}>
           <Image
-            key={isDark ? 'light' : 'dark'}
-            src={isDark ? '/logo/light.png' : '/logo/dark.png'}
-            alt='logo belajar yuk'
+            src={'/logo/logolearnup.webp'}
+            alt='LearnUp'
             width={120}
             height={24}
             priority
@@ -112,8 +111,22 @@ export default function DashboardSidebar() {
         )}
       </nav>
   <nav className={`mt-auto flex flex-col ${expanded ? 'items-stretch' : 'items-center'} gap-2 w-full`}>
-  {/* Profile avatar moved to global header (see dashboard pages). Removed from sidebar for cleaner layout. */}
-        {/* Hide Settings and Theme toggle on mobile; they move into Profile page */}
+        {/* Profile placed above Settings */}
+        {session ? (
+          <SidebarLink expanded={expanded} href="/dashboard/profile" icon={UserIcon} label="Profil" />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setGateOpen('/dashboard/profile')}
+            className={`${expanded ? 'flex h-10 w-full items-center gap-3 rounded-lg px-3' : 'flex h-12 w-12 items-center justify-center rounded-lg'} text-slate-500 hover:bg-slate-100 dark:text-neutral-400 dark:hover:bg-[#0f0f0f]`}
+            title="Profil"
+          >
+            <UserIcon className="h-6 w-6" />
+            {expanded && <span className="text-sm font-medium truncate">Profil</span>}
+          </button>
+        )}
+
+        {/* Settings and Theme toggle */}
         <div className="hidden lg:block">
           <SidebarLink expanded={expanded} href="/dashboard/settings" icon={SettingsIcon} label="Settings" />
           <div className={`${expanded ? 'flex justify-between items-center px-1' : ''}`}>

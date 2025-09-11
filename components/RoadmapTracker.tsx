@@ -57,12 +57,13 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
   const [confirmUnpublishOpen, setConfirmUnpublishOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [confirmDeleteText, setConfirmDeleteText] = useState('');
-  const [nodeGenerating, setNodeGenerating] = useState<Record<string, boolean>>({});
+  // Milestone-level generation state (replaces legacy per-node generation)
+  const [milestoneGenerating, setMilestoneGenerating] = useState<Record<number, boolean>>({});
   const [autoInitTried, setAutoInitTried] = useState(false);
-  const [firstNodeGenerating, setFirstNodeGenerating] = useState(false);
-  const [firstNodeError, setFirstNodeError] = useState<string | null>(null);
+  const [firstMilestoneGenerating, setFirstMilestoneGenerating] = useState(false);
+  const [firstMilestoneError, setFirstMilestoneError] = useState<string | null>(null);
   const [hasShownFirstToast, setHasShownFirstToast] = useState(false);
-  const lastGenClickRef = useRef<Record<string, number>>({});
+  const lastMilestoneClickRef = useRef<Record<number, number>>({});
   // Start-date disabled for saved roadmaps
 
   // Load roadmap + progress
@@ -117,6 +118,31 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
   const milestones: Array<{ timeframe: string; topic: string; subbab?: string[]; sub_tasks?: Array<string | { task: string; type?: string }> }>
     = useMemo(() => (roadmap?.content?.milestones || []) as any, [roadmap]);
 
+  // Helper: determine if milestone mi can be accessed (previous milestone complete + quiz exists)
+  const getGateForMilestone = useCallback((mi: number) => {
+    try {
+      if (mi <= 0) return { ok: true } as const;
+      const prev = mi - 1;
+      const prevMilestone = (milestones as any[])[prev] || {};
+      const expected = Array.isArray(prevMilestone.subbab)
+        ? prevMilestone.subbab.length
+        : (Array.isArray(prevMilestone.sub_tasks) ? prevMilestone.sub_tasks.length : 0);
+      const tasks = (progress?.completedTasks || {}) as Record<string, any>;
+      for (let i = 0; i < expected; i++) {
+        if (!tasks[`m-${prev}-t-${i}`]) {
+          return { ok: false, reason: 'need-nodes', index: i as number, href: `/dashboard/roadmaps/${(roadmap as any).id}/read?m=${prev}&s=${i}` } as const;
+        }
+      }
+      const quizKey = `quiz-m-${prev}`;
+      if (!tasks[quizKey]) {
+        return { ok: false, reason: 'need-quiz', href: `/dashboard/roadmaps/${(roadmap as any).id}/quiz?m=${prev}` } as const;
+      }
+      return { ok: true } as const;
+    } catch {
+      return { ok: true } as const;
+    }
+  }, [milestones, progress, roadmap]);
+
   // Determine if materials are ready for publishing (client-side hint; server enforces again)
   const materialsReady = useMemo(() => {
     try {
@@ -146,33 +172,32 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
     } catch { return false; }
   }, [roadmap]);
 
-  // Auto-init generate only the very first node (m=0,s=0) if no materials exist at all.
-  const triggerFirstNodeGeneration = useCallback(async () => {
-    setFirstNodeError(null);
-    setFirstNodeGenerating(true);
+  // Auto-init generate only the very first milestone (m=0) if no materials exist at all.
+  const triggerFirstMilestoneGeneration = useCallback(async () => {
+    setFirstMilestoneError(null);
+    setFirstMilestoneGenerating(true);
     try {
-      const res = await fetch(`/api/roadmaps/${roadmapId}/prepare-materials?m=0&s=0`, { method: 'POST' });
+      const res = await fetch(`/api/roadmaps/${roadmapId}/prepare-materials?m=0`, { method: 'POST' });
       if (!res.ok) {
-        let msg = 'Gagal generate materi pertama';
+        let msg = 'Gagal generate milestone pertama';
         try { const j = await res.json(); msg = j?.error || msg; } catch {}
         throw new Error(msg);
       }
       const r = await fetch(`/api/roadmaps/${roadmapId}`);
       if (r.ok) {
         const j = await r.json();
-        // If previously missing and now exists show toast
         const mats: any[][] = Array.isArray(j?.content?.materialsByMilestone) ? j.content.materialsByMilestone : [];
-        const first = mats?.[0]?.[0];
-        if (first && !hasShownFirstToast) {
-          show({ type: 'success', title: 'Siap', message: 'Materi pertama siap dipelajari.' });
+        const firstList = mats?.[0];
+        if (Array.isArray(firstList) && firstList.length && !hasShownFirstToast) {
+          show({ type: 'success', title: 'Siap', message: 'Milestone pertama siap dipelajari.' });
           setHasShownFirstToast(true);
         }
         setRoadmap(j);
       }
     } catch (e: any) {
-      setFirstNodeError(e.message || 'Gagal generate materi pertama');
+      setFirstMilestoneError(e.message || 'Gagal generate milestone pertama');
     } finally {
-      setFirstNodeGenerating(false);
+      setFirstMilestoneGenerating(false);
     }
   }, [roadmapId, show, hasShownFirstToast]);
 
@@ -182,7 +207,7 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
     const mats: any[][] = Array.isArray((roadmap as any)?.content?.materialsByMilestone)
       ? (roadmap as any).content.materialsByMilestone
       : [];
-    const first = mats?.[0]?.[0];
+    const first = mats?.[0]?.[0]; // check any material in first milestone
     const empty = !mats.some(row => Array.isArray(row) && row.length > 0);
     if (first) {
       setHasShownFirstToast(true); // already exists, don't toast
@@ -191,11 +216,26 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
     }
     if (empty && !first) {
       setAutoInitTried(true);
-      void triggerFirstNodeGeneration();
+      void triggerFirstMilestoneGeneration();
       return;
     }
     setAutoInitTried(true);
-  }, [roadmap, autoInitTried, triggerFirstNodeGeneration]);
+  }, [roadmap, autoInitTried, triggerFirstMilestoneGeneration]);
+
+  // Helper: check if any other milestone generation is active (client or server)
+  const isOtherGenerationActive = useCallback((mi: number) => {
+    try {
+      const clientOther = Object.entries(milestoneGenerating).some(([k, v]) => Number(k) !== mi && !!v);
+      const genMeta: any = (roadmap as any)?.content?._generation || {};
+      // Treat undefined milestone as first (m=0). It's considered "other" for all non-zero milestones.
+      const serverOther = !!genMeta.inProgress && (
+        typeof genMeta.milestone === 'number'
+          ? genMeta.milestone !== mi
+          : mi !== 0
+      );
+      return clientOther || serverOther;
+    } catch { return false; }
+  }, [milestoneGenerating, roadmap]);
 
   // Open modal for a milestone with optional index and load cached short summary
   const openMilestoneModal = (m: any, mi: number | null) => {
@@ -324,7 +364,18 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
               {(() => {
                 try {
                   const mats: any[][] = Array.isArray((roadmap as any)?.content?.materialsByMilestone) ? (roadmap as any).content.materialsByMilestone : [];
-                  if (mats?.[0]?.[0]) {
+                  const genMeta: any = (roadmap as any)?.content?._generation || {};
+                  const firstReady = Array.isArray(mats?.[0]) && mats?.[0]?.length > 0;
+                  const serverGenActive = !!genMeta.inProgress && (genMeta.milestone === 0 || typeof genMeta.milestone === 'undefined');
+                  if (!firstReady && (firstMilestoneGenerating || serverGenActive)) {
+                    return (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-[11px] font-medium">
+                        <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" className="opacity-25" /><path fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" className="opacity-75" /></svg>
+                        Menyiapkan…
+                      </span>
+                    );
+                  }
+                  if (firstReady) {
                     return <span className="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-700 px-2 py-0.5 text-[11px] font-medium">✓ Materi pertama siap</span>;
                   }
                 } catch {}
@@ -378,30 +429,80 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
           ) : null}
           {(() => {
             const mats: any[][] = Array.isArray((roadmap as any)?.content?.materialsByMilestone) ? (roadmap as any).content.materialsByMilestone : [];
-            const first = mats?.[0]?.[0];
-            if (!first) {
-              if (firstNodeError && !firstNodeGenerating) {
+            const genMeta: any = (roadmap as any)?.content?._generation || {};
+            const firstList = mats?.[0];
+            const firstReady = Array.isArray(firstList) && firstList.length > 0;
+            const serverGenActive = !!genMeta.inProgress && (genMeta.milestone === 0 || typeof genMeta.milestone === 'undefined');
+            if (!firstReady) {
+              // Show retry only if explicit error state AND no active server generation
+              if (firstMilestoneError && !firstMilestoneGenerating && !serverGenActive) {
                 return (
                   <button
                     type="button"
-                    onClick={() => triggerFirstNodeGeneration()}
+                    onClick={() => triggerFirstMilestoneGeneration()}
                     className="rounded-lg px-3 py-2 text-sm font-semibold bg-red-600 text-white hover:bg-red-700 inline-flex items-center gap-2"
                   >
                     <XCircle className="h-4 w-4" /> Coba Lagi
                   </button>
                 );
               }
+              const spinning = firstMilestoneGenerating || serverGenActive;
+              if (spinning) {
+                return (
+                  <div className="inline-flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={true}
+                      className="rounded-lg px-3 py-2 text-sm font-semibold bg-blue-600 text-white inline-flex items-center gap-2 disabled:opacity-90"
+                    >
+                      <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" className="opacity-25" /><path fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" className="opacity-75" /></svg>
+                      Menyiapkan…
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center h-9 w-9 rounded-lg border border-slate-200 dark:border-[#2a2a2a] bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                      title="Batalkan"
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(`/api/roadmaps/${roadmapId}/prepare-materials`, { method: 'DELETE' });
+                          if (res.ok) {
+                            show({ type: 'success', title: 'Dibatalkan', message: 'Pembuatan materi dibatalkan.' });
+                          }
+                        } catch {}
+                        setFirstMilestoneGenerating(false);
+                        setFirstMilestoneError(null);
+                        try {
+                          const r = await fetch(`/api/roadmaps/${roadmapId}`);
+                          if (r.ok) setRoadmap(await r.json());
+                        } catch {}
+                      }}
+                      aria-label="Batalkan menyiapkan"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path fillRule="evenodd" d="M5.47 5.47a.75.75 0 011.06 0L12 10.94l5.47-5.47a.75.75 0 111.06 1.06L13.06 12l5.47 5.47a.75.75 0 11-1.06 1.06L12 13.06l-5.47 5.47a.75.75 0 11-1.06-1.06L10.94 12 5.47 6.53a.75.75 0 010-1.06z" clipRule="evenodd" /></svg>
+                    </button>
+                  </div>
+                );
+              }
               return (
                 <button
                   type="button"
-                  disabled={firstNodeGenerating}
-                  className="rounded-lg px-3 py-2 text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:text-slate-600 disabled:cursor-not-allowed dark:disabled:bg-[#1a1a1a] dark:disabled:text-neutral-400 inline-flex items-center gap-2"
-                >{firstNodeGenerating ? (
-                  <>
-                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" className="opacity-25" /><path fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" className="opacity-75" /></svg>
-                    Menyiapkan…
-                  </>
-                ) : 'Menyiapkan…'}</button>
+                  className="rounded-lg px-3 py-2 text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 inline-flex items-center gap-2"
+                  onClick={async () => {
+                    try {
+                      const genMeta: any = (roadmap as any)?.content?._generation || {};
+                      const serverOther = !!genMeta.inProgress;
+                      if (serverOther || isOtherGenerationActive(0)) {
+                        const activeMi: number | undefined = typeof genMeta.milestone === 'number' ? genMeta.milestone : 0;
+                        const activeTopic: string | undefined = (Array.isArray((roadmap as any)?.content?.milestones) && typeof activeMi === 'number') ? (roadmap as any).content.milestones[activeMi]?.topic : undefined;
+                        show({ type: 'info', title: 'Sedang diproses', message: activeTopic ? `Pembuatan "${activeTopic}" sedang berjalan. Tunggu selesai dahulu sebelum memulai yang lain.` : 'Sedang ada proses pembuatan milestone lain. Tunggu selesai dahulu.' });
+                        return;
+                      }
+                    } catch {}
+                    await triggerFirstMilestoneGeneration();
+                  }}
+                >
+                  Generate Milestone
+                </button>
               );
             }
             return <Link href={`/dashboard/roadmaps/${roadmap.id}/read`} className="rounded-lg bg-blue-600 text-white px-3 py-2 text-sm font-semibold hover:bg-blue-700">Mulai Belajar</Link>;
@@ -644,11 +745,78 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
                 openMilestoneModal(m, mi);
               }}
               onSubbabClick={(mi: number, si: number) => {
+                const gate = getGateForMilestone(mi);
+                if (!gate.ok) {
+                  if (gate.reason === 'need-nodes') {
+                    show({ type: 'info', title: 'Selesaikan materi dulu', message: 'Tuntaskan semua subbab pada milestone sebelumnya terlebih dahulu.' });
+                  } else {
+                    show({ type: 'info', title: 'Kerjakan kuis', message: 'Selesaikan kuis pada milestone sebelumnya untuk membuka tahap ini.' });
+                  }
+                  if (gate.href) router.push(gate.href);
+                  return;
+                }
                 router.push(`/dashboard/roadmaps/${(roadmap as any).id}/read?m=${mi}&s=${si}`);
               }}
               startButtonLabel="Detail"
               promptMode={'simple'}
               showMiniMap={false}
+                  getMilestoneUI={(mi: number) => {
+                    const m = (milestones as any[])[mi];
+                    const mats: any[][] = Array.isArray((roadmap as any)?.content?.materialsByMilestone) ? (roadmap as any).content.materialsByMilestone : [];
+                    const list = mats?.[mi] || [];
+                    const totalSubs = Array.isArray((m as any).subbab) ? (m as any).subbab.length : (Array.isArray((m as any).sub_tasks) ? (m as any).sub_tasks.length : 0);
+                    const complete = totalSubs > 0 && list.length >= totalSubs;
+                    const genMeta: any = (roadmap as any)?.content?._generation || {};
+                    const serverGenActive = !!genMeta.inProgress && (genMeta.milestone === mi || (mi === 0 && typeof genMeta.milestone === 'undefined'));
+                    const mats0 = mats?.[0];
+                    const firstReady = Array.isArray(mats0) && mats0.length > 0;
+                    const serverGenActiveFor0 = !!genMeta.inProgress && (genMeta.milestone === 0 || typeof genMeta.milestone === 'undefined');
+                    // Show header-like preparing ONLY when actually generating (server or local)
+                    const headerPreparingFirst = (mi === 0) && (!firstReady) && (firstMilestoneGenerating || serverGenActiveFor0);
+                    const generating = (headerPreparingFirst ? true : false) || ((mi === 0 && firstMilestoneGenerating) ? true : false) || !!milestoneGenerating[mi] || serverGenActive;
+                    const disabled = generating || isOtherGenerationActive(mi);
+                    const openHref = complete ? `/dashboard/roadmaps/${(roadmap as any).id}/read?m=${mi}&s=0` : null;
+                    return { complete, generating, disabled, openHref };
+                  }}
+                  onGenerate={async (mi: number) => {
+                    const genMeta: any = (roadmap as any)?.content?._generation || {};
+                    const serverGenActive = !!genMeta.inProgress && (typeof genMeta.milestone === 'number' ? genMeta.milestone !== mi : mi !== 0);
+                    if (isOtherGenerationActive(mi) || serverGenActive) {
+                      try {
+                        const activeMi: number | undefined = typeof genMeta.milestone === 'number' ? genMeta.milestone : 0;
+                        const activeTopic: string | undefined = (Array.isArray((roadmap as any)?.content?.milestones) && typeof activeMi === 'number') ? (roadmap as any).content.milestones[activeMi]?.topic : undefined;
+                        show({ type: 'info', title: 'Sedang diproses', message: activeTopic ? `Pembuatan "${activeTopic}" sedang berjalan. Tunggu selesai dahulu sebelum memulai yang lain.` : 'Sedang ada proses pembuatan milestone lain. Tunggu selesai dahulu.' });
+                      } catch {
+                        show({ type: 'info', title: 'Sedang diproses', message: 'Sedang ada proses pembuatan milestone lain. Tunggu selesai dahulu.' });
+                      }
+                      return;
+                    }
+                    const now = Date.now();
+                    const last = lastMilestoneClickRef.current[mi] || 0;
+                    if (now - last < 1000) return; // debounce
+                    lastMilestoneClickRef.current[mi] = now;
+                    setMilestoneGenerating(prev => ({ ...prev, [mi]: true }));
+                    try {
+                      const res = await fetch(`/api/roadmaps/${roadmapId}/prepare-materials?m=${mi}`, { method: 'POST' });
+                      if (!res.ok) {
+                        let msg = 'Gagal generate milestone';
+                        try { const j = await res.json(); msg = j?.error || msg; } catch {}
+                        if (res.status === 409) {
+                          show({ type: 'info', title: 'Sedang diproses', message: 'Sedang ada proses pembuatan lain. Coba lagi setelah selesai.' });
+                        } else if (res.status === 429) {
+                          show({ type: 'info', title: 'Server sibuk', message: msg });
+                        } else {
+                          show({ type: 'error', title: 'Gagal', message: msg });
+                        }
+                      } else {
+                        const r = await fetch(`/api/roadmaps/${roadmapId}`); if (r.ok) setRoadmap(await r.json());
+                      }
+                    } catch (e: any) {
+                      show({ type: 'error', title: 'Gagal', message: e?.message || 'Gagal generate milestone' });
+                    } finally {
+                      setMilestoneGenerating(prev => ({ ...prev, [mi]: false }));
+                    }
+                  }}
             />
           </div>
         </div>
@@ -678,8 +846,8 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
                       const mats: any[][] = Array.isArray((roadmap as any)?.content?.materialsByMilestone) ? (roadmap as any).content.materialsByMilestone : [];
                       const nodeMaterial = mats?.[mi]?.[ti];
                       const materialReady = !!nodeMaterial;
-                      const genKey = `${mi}:${ti}`;
-                      const isGenerating = !!nodeGenerating[genKey];
+                      const gate = getGateForMilestone(mi);
+                      const locked = !gate.ok;
                       return (
                         <li key={ti} className="flex items-center gap-3 px-5 py-3 group">
                           {done ? (
@@ -687,50 +855,23 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
                           ) : materialReady ? (
                             <span className="h-5 w-5 inline-flex items-center justify-center rounded-full border border-blue-400 text-blue-500 text-[10px] font-bold" title="Siap dipelajari">✓</span>
                           ) : (
+                            <span className="h-5 w-5 inline-flex items-center justify-center rounded-full border border-slate-300 text-slate-300" title="Belum tersedia">•</span>
+                          )}
+                          {materialReady && !locked ? (
+                            <Link href={`/dashboard/roadmaps/${(roadmap as any).id}/read?m=${mi}&s=${ti}`} className="flex-1 text-slate-800 dark:text-neutral-200 hover:underline truncate">{label}</Link>
+                          ) : materialReady && locked ? (
                             <button
                               type="button"
-                              disabled={isGenerating}
-                              onClick={async () => {
-                                if (isGenerating) return;
-                                const now = Date.now();
-                                const last = lastGenClickRef.current[genKey] || 0;
-                                if (now - last < 800) return; // debounce 800ms
-                                lastGenClickRef.current[genKey] = now;
-                                setNodeGenerating(prev => ({ ...prev, [genKey]: true }));
-                                try {
-                                  const res = await fetch(`/api/roadmaps/${roadmapId}/prepare-materials?m=${mi}&s=${ti}`, { method: 'POST' });
-                                  if (!res.ok) {
-                                    let msg = 'Gagal generate';
-                                    try { const j = await res.json(); msg = j?.error || msg; } catch {}
-                                    show({ type: 'error', title: 'Gagal', message: msg });
-                                  } else {
-                                    const r = await fetch(`/api/roadmaps/${roadmapId}`); if (r.ok) setRoadmap(await r.json());
-                                  }
-                                } catch (e: any) {
-                                  show({ type: 'error', title: 'Gagal', message: e?.message || 'Gagal generate' });
-                                } finally {
-                                  setNodeGenerating(prev => ({ ...prev, [genKey]: false }));
-                                }
-                              }}
-                              className={`h-5 w-5 inline-flex items-center justify-center rounded-full border text-[10px] ${isGenerating ? 'border-blue-400 text-blue-500 cursor-wait' : 'border-slate-300 text-slate-500 hover:border-blue-400 hover:text-blue-600'} `}
-                              title={isGenerating ? 'Sedang membuat…' : 'Generate materi subbab ini'}
-                            >
-                              {isGenerating ? (
-                                <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                                </svg>
-                              ) : (
-                                '+'
-                              )}
-                            </button>
-                          )}
-                          {materialReady ? (
-                            <Link href={`/dashboard/roadmaps/${(roadmap as any).id}/read?m=${mi}&s=${ti}`} className="flex-1 text-slate-800 dark:text-neutral-200 hover:underline truncate">{label}</Link>
+                              onClick={() => { if (gate.href) router.push(gate.href); }}
+                              className="flex-1 text-left text-slate-500 dark:text-neutral-500 truncate hover:underline"
+                              title={gate.reason === 'need-nodes' ? 'Selesaikan subbab milestone sebelumnya' : 'Selesaikan kuis milestone sebelumnya'}
+                            >{label}</button>
                           ) : (
                             <span className="flex-1 text-slate-500 dark:text-neutral-500 truncate">{label}</span>
                           )}
-                          {!materialReady && (
+                          {locked ? (
+                            <span className="text-[10px] uppercase tracking-wide bg-slate-100 dark:bg-[#1a1a1a] text-slate-500 dark:text-neutral-400 px-2 py-0.5 rounded">Terkunci</span>
+                          ) : !materialReady && (
                             <span className="text-[10px] uppercase tracking-wide bg-slate-100 dark:bg-[#1a1a1a] text-slate-500 dark:text-neutral-400 px-2 py-0.5 rounded">Belum</span>
                           )}
                         </li>
@@ -738,22 +879,131 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
                     })}
                   </ul>
                 ) : null}
-                {/* Quiz row with distinct background */}
-                <div className="px-5 py-3 border-t border-slate-200 dark:border-[#1f1f1f] bg-sky-50 dark:bg-[#0b1a24] rounded-b-xl">
+                {/* Milestone generation & quiz row */}
+                <div className="px-5 py-3 border-t border-slate-200 dark:border-[#1f1f1f] bg-sky-50 dark:bg-[#0b1a24] rounded-b-xl flex items-center justify-between gap-4 flex-wrap">
                   {(() => {
+                    const mats: any[][] = Array.isArray((roadmap as any)?.content?.materialsByMilestone) ? (roadmap as any).content.materialsByMilestone : [];
+                    const list = mats?.[mi] || [];
+                    const totalSubs = Array.isArray((m as any).subbab) ? (m as any).subbab.length : (Array.isArray((m as any).sub_tasks) ? (m as any).sub_tasks.length : 0);
+                    const complete = totalSubs > 0 && list.length >= totalSubs;
+                    const genMeta: any = (roadmap as any)?.content?._generation || {};
+                    // If server doesn't specify milestone index, assume it's the first milestone (m=0)
+                    const serverGenActive = !!genMeta.inProgress && (genMeta.milestone === mi || (mi === 0 && typeof genMeta.milestone === 'undefined'));
+                    // Derive header-like preparing state for first milestone: not ready, no explicit error
+                    const firstList = mats?.[0];
+                    const firstReady = Array.isArray(firstList) && firstList.length > 0;
+                    const serverGenActiveFor0 = !!genMeta.inProgress && (genMeta.milestone === 0 || typeof genMeta.milestone === 'undefined');
+                    const headerPreparingFirst = (mi === 0) && (!firstReady) && !(firstMilestoneError && !firstMilestoneGenerating && !serverGenActiveFor0);
+                    // Is this milestone currently generating? (auto-first or manual on this index)
+                    const generatingThis = (headerPreparingFirst ? true : false) || ((mi === 0 && firstMilestoneGenerating) ? true : false) || !!milestoneGenerating[mi] || serverGenActive;
+                    const lockedByOther = !generatingThis && isOtherGenerationActive(mi);
                     const quizKey = `quiz-m-${mi}`;
                     const quizEntry: any = (progress?.completedTasks as any)?.[quizKey];
                     const quizDone = !!quizEntry?.passed;
                     const quizScore = typeof quizEntry?.score === 'number' ? quizEntry.score : null;
+                    const hasQuizStored = Array.isArray((roadmap as any)?.content?.quizzesByMilestone?.[mi]) && (roadmap as any).content.quizzesByMilestone[mi].length > 0;
                     return (
-                      <Link href={`/dashboard/roadmaps/${(roadmap as any).id}/quiz?m=${mi}`} className="flex items-center gap-3 text-sky-900 dark:text-sky-300 hover:underline font-medium">
-                        {quizDone ? (
-                          <CheckCircle className="h-5 w-5 text-green-600" aria-label="Kuis Lulus" />
+                      <>
+                        <div className="flex items-center gap-3 text-sky-900 dark:text-sky-300 font-medium">
+                          {complete ? (
+                            <CheckCircle className="h-5 w-5 text-green-600" aria-label="Materi lengkap" />
+                          ) : generatingThis ? (
+                            <svg className="h-5 w-5 animate-spin text-sky-500" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>
+                          ) : (
+                            <span className="h-5 w-5 inline-block rounded-full border border-slate-300" aria-hidden />
+                          )}
+                          <span className="text-sm">Milestone {m.topic}</span>
+                          {complete && (
+                            <Link href={`/dashboard/roadmaps/${(roadmap as any).id}/quiz?m=${mi}`} className="text-xs underline decoration-dotted">
+                              {quizDone ? `Kuis selesai${quizScore !== null ? ` (${quizScore}%)` : ''}` : (hasQuizStored ? 'Kuis siap' : 'Kuis')}
+                            </Link>
+                          )}
+                        </div>
+                        {!complete ? (
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={generatingThis || lockedByOther}
+                              onClick={async () => {
+                              if (generatingThis) return;
+                              if (lockedByOther) {
+                                try {
+                                  const genMeta: any = (roadmap as any)?.content?._generation || {};
+                                  const activeMi: number | undefined = typeof genMeta.milestone === 'number' ? genMeta.milestone : undefined;
+                                  const activeTopic: string | undefined = (Array.isArray((roadmap as any)?.content?.milestones) && typeof activeMi === 'number') ? (roadmap as any).content.milestones[activeMi]?.topic : undefined;
+                                  show({ type: 'info', title: 'Sedang diproses', message: activeTopic ? `Pembuatan "${activeTopic}" sedang berjalan. Tunggu selesai dahulu sebelum memulai yang lain.` : 'Sedang ada proses pembuatan milestone lain. Tunggu selesai dahulu.' });
+                                } catch {
+                                  show({ type: 'info', title: 'Sedang diproses', message: 'Sedang ada proses pembuatan milestone lain. Tunggu selesai dahulu.' });
+                                }
+                                return;
+                              }
+                              const now = Date.now();
+                              const last = lastMilestoneClickRef.current[mi] || 0;
+                              if (now - last < 1000) return; // debounce 1s
+                              lastMilestoneClickRef.current[mi] = now;
+                              setMilestoneGenerating(prev => ({ ...prev, [mi]: true }));
+                              try {
+                                const res = await fetch(`/api/roadmaps/${roadmapId}/prepare-materials?m=${mi}`, { method: 'POST' });
+                                if (!res.ok) {
+                                  let msg = 'Gagal generate milestone';
+                                  try { const j = await res.json(); msg = j?.error || msg; } catch {}
+                                  if (res.status === 409) {
+                                    show({ type: 'info', title: 'Sedang diproses', message: 'Sedang ada proses pembuatan lain. Coba lagi setelah selesai.' });
+                                  } else if (res.status === 429) {
+                                    show({ type: 'info', title: 'Server sibuk', message: msg });
+                                  } else {
+                                    show({ type: 'error', title: 'Gagal', message: msg });
+                                  }
+                                } else {
+                                  const r = await fetch(`/api/roadmaps/${roadmapId}`); if (r.ok) setRoadmap(await r.json());
+                                }
+                              } catch (e: any) {
+                                show({ type: 'error', title: 'Gagal', message: e?.message || 'Gagal generate milestone' });
+                              } finally {
+                                setMilestoneGenerating(prev => ({ ...prev, [mi]: false }));
+                              }
+                              }}
+                              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:bg-slate-300 disabled:text-slate-600 disabled:cursor-not-allowed"
+                            >{generatingThis ? (
+                              <>
+                                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" className="opacity-25" /><path fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" className="opacity-75" /></svg>
+                                {mi === 0 ? 'Menyiapkan…' : 'Generate Milestone…'}
+                              </>
+                            ) : 'Generate Milestone'}</button>
+                            {generatingThis ? (
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 text-slate-600 px-2 py-1 text-[11px] font-medium hover:bg-slate-100"
+                                title="Batalkan pembuatan milestone"
+                                onClick={async () => {
+                                  try {
+                                    const res = await fetch(`/api/roadmaps/${roadmapId}/prepare-materials?m=${mi}`, { method: 'DELETE' });
+                                    if (res.ok) {
+                                      show({ type: 'success', title: 'Dibatalkan', message: 'Pembuatan milestone dibatalkan.' });
+                                    }
+                                  } catch {}
+                                  setMilestoneGenerating(prev => ({ ...prev, [mi]: false }));
+                                  if (mi === 0) setFirstMilestoneGenerating(false);
+                                  try {
+                                    const r = await fetch(`/api/roadmaps/${roadmapId}`);
+                                    if (r.ok) setRoadmap(await r.json());
+                                  } catch {}
+                                }}
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5"><path fillRule="evenodd" d="M5.47 5.47a.75.75 0 011.06 0L12 10.94l5.47-5.47a.75.75 0 111.06 1.06L13.06 12l5.47 5.47a.75.75 0 11-1.06 1.06L12 13.06l-5.47 5.47a.75.75 0 11-1.06-1.06L10.94 12 5.47 6.53a.75.75 0 010-1.06z" clipRule="evenodd" /></svg>
+                                Batalkan
+                              </button>
+                            ) : null}
+                          </div>
                         ) : (
-                          <span className="h-5 w-5 inline-block rounded-full border border-slate-300" aria-hidden />
+                          mi === 0 ? (
+                            <Link
+                              href={`/dashboard/roadmaps/${(roadmap as any).id}/read?m=0&s=0`}
+                              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-blue-700"
+                            >Buka</Link>
+                          ) : null
                         )}
-                        <span>Kuis {m.topic}{quizScore !== null ? ` — Skor: ${quizScore}%` : ''}</span>
-                      </Link>
+                      </>
                     );
                   })()}
                 </div>
@@ -817,7 +1067,7 @@ export default function RoadmapTracker({ roadmapId }: { roadmapId: string }) {
                   ) : (
                     <p className="mt-2 text-sm text-slate-500 dark:text-neutral-400">Belum ada rincian subbab untuk materi ini.</p>
                   )}
-                </div>
+                 </div>
                 {/* Footer with conditional Start Learning button */}
                 {(() => {
                   try {

@@ -9,7 +9,8 @@ export async function POST(req: NextRequest) {
   // CSRF and auth
   try { assertSameOrigin(req as any); } catch (e: any) { return NextResponse.json({ error: 'Forbidden' }, { status: e?.status || 403 }); }
   const session = (await getServerSession(authOptions as any)) as any;
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const userId = (session as any)?.user?.id as string | undefined;
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
   const body = await req.json();
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
   const sCandidate = Number.isInteger(c?.s) ? Number(c?.s) : Number.isInteger(sTop) ? Number(sTop) : undefined;
   if (!hasClientCtx && idCandidate != null && mCandidate != null && sCandidate != null) {
       try {
-    const roadmap = await prisma.roadmap.findFirst({ where: { id: String(idCandidate), userId: session.user.id } });
+  const roadmap = await prisma.roadmap.findFirst({ where: { id: String(idCandidate), userId } });
         const content: any = (roadmap as any)?.content || {};
         const byMilestone: any[][] = Array.isArray(content?.materialsByMilestone) ? content.materialsByMilestone : [];
     const m = Math.min(Math.max(0, Number(mCandidate)), Math.max(0, byMilestone.length - 1));

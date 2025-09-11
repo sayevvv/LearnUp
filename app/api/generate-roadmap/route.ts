@@ -36,6 +36,15 @@ export async function POST(req: NextRequest) {
     const promptTemplate = new PromptTemplate({
       template: `Anda adalah seorang ahli perancang kurikulum. Buat roadmap pembelajaran yang dipersonalisasi, detail, dan realistis.
 
+ATURAN KETAT PENTING (WAJIB DIIKUTI):
+1. SELURUH output (nilai string) harus dalam Bahasa Indonesia baku dan mudah dipahami. Jangan gunakan Bahasa Inggris kecuali istilah teknis yang memang umum (misal: API, HTTP, Git).
+2. Jangan memberikan penjelasan di luar JSON. TIDAK BOLEH ada kalimat pembuka / penutup / catatan tambahan di luar struktur JSON.
+3. Jangan menambahkan kunci (key) baru selain yang ditentukan skema. Jangan hilangkan kunci yang diwajibkan.
+4. Jangan menambahkan contoh kode, emoji, markup HTML, atau markdown dekoratif.
+5. Jika pengguna memberi input dalam campuran bahasa, tetap normalisasi hasil akhir ke Bahasa Indonesia.
+6. Lakukan penalaran (reasoning) secara internal; jangan tampilkan langkah reasoning tersebut di output.
+7. Pastikan tidak ada istilah Inggris yang bisa diterjemahkan (contoh: 'week' harus menjadi 'minggu').
+
 Analisis permintaan pengguna berikut:
 - Topik Utama: {topic}
 - Level Pengguna Saat Ini: {level}
@@ -56,7 +65,7 @@ Lakukan proses reasoning berikut:
 
 Hasil akhir HARUS memperhitungkan semua batasan dan membantu pengguna mencapai tujuan akhir.
 
-Hasilkan output HANYA dalam format JSON yang valid sesuai skema.
+Hasilkan output HANYA dalam format JSON yang valid sesuai skema (tidak diawali / diakhiri teks lain). JSON harus dapat di-parse tanpa perlu pembersihan tambahan.
 
 {format_instructions}
 
