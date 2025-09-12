@@ -1,8 +1,3 @@
-````markdown
-<p align="center">
-  <img src="https://raw.githubusercontent.com/sayevvv/temp-readme-asset/main/logolearnup.webp" alt="LearnUp Logo" width="200"/>
-</p>
-
 <h1 align="center">
   LearnUp
 </h1>
@@ -26,10 +21,6 @@
 Pernahkah Anda merasa tersesat di lautan informasi saat mencoba mempelajari sesuatu yang baru? **LearnUp** adalah solusinya.  
 Kami adalah platform e-learning cerdas yang didesain untuk mengubah cara Anda belajar, dari hobi baru hingga keahlian teknis yang kompleks.  
 Dengan LearnUp, Anda tidak hanya belajar, tetapi juga membangun peta jalan pengetahuan yang terstruktur dan dipersonalisasi, didukung oleh kecerdasan buatan.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/sayevvv/temp-readme-asset/main/macbook-scroll.png" alt="LearnUp Showcase"/>
-</p>
 
 ---
 
@@ -70,67 +61,6 @@ LearnUp dibangun di atas fondasi teknologi modern yang andal dan skalabel, memas
 | **Bahasa**     | [**TypeScript**](https://www.typescriptlang.org/)                                                            |
 
 ---
-
-### 🚀 Panduan Instalasi
-
-Ikuti langkah-langkah berikut untuk menjalankan LearnUp di lingkungan lokal Anda.
-
-#### 1. Clone Repositori
-```bash
-git clone https://github.com/sayevvv/learnup.git
-cd learnup
-````
-
-#### 2. Instalasi Dependensi
-
-Pilih manajer paket favorit Anda:
-
-```bash
-npm install
-# atau
-yarn install
-# atau
-pnpm install
-```
-
-#### 3. Setup Database (Prisma)
-
-* Salin file `.env.example` menjadi `.env`.
-* Atur variabel `DATABASE_URL` di dalam file `.env` dengan koneksi string database Anda.
-* Jalankan migrasi Prisma untuk menyiapkan skema database:
-
-  ```bash
-  npx prisma migrate dev
-  ```
-* (Opsional) Isi database dengan data awal:
-
-  ```bash
-  npx prisma db seed
-  ```
-
-#### 4. Konfigurasi Variabel Lingkungan
-
-Pastikan Anda telah mengisi semua kunci API yang diperlukan (seperti OpenAI, Google GenAI, dll.) di file `.env` Anda.
-
----
-
-### ▶️ Menjalankan Proyek
-
-Setelah instalasi selesai, jalankan server pengembangan:
-
-```bash
-npm run dev
-# atau
-yarn dev
-```
-
-Buka [http://localhost:3000](http://localhost:3000) di browser Anda untuk memulai perjalanan belajar!
-
----
-
-### ❤️ Kontribusi
-
-Kami sangat terbuka untuk kontribusi! Jika Anda memiliki ide untuk fitur baru, perbaikan, atau ingin membantu, jangan ragu untuk membuka *issue* atau *pull request*.
 
 **Terima kasih telah menjadi bagian dari perjalanan LearnUp!**
 
