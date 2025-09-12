@@ -61,19 +61,19 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Right Side - Background image with rotating subjects/quotes */}
-        <div className="hidden lg:block lg:col-span-7 relative overflow-hidden">
-          {/* Background Image */}
-          <div
-            className="absolute inset-0 bg-center bg-cover"
-            style={{ backgroundImage: "url('/assets/login.jpg')" }}
-          />
-          {/* Overlay for readability */}
-          <div className="absolute inset-0 bg-slate-900/60" />
-          {/* Content with transitions */}
+        {/* Right Side - Mesh Gradient Background with rotating subjects/quotes */}
+        <div className="hidden lg:block lg:col-span-7 relative overflow-hidden bg-[#061326]">
+          {/* Mesh Gradient Layers */}
+          <div className="absolute inset-0">
+            <div className="absolute inset-0 [background:linear-gradient(115deg,#051021,#071c34_40%,#082a52_78%),radial-gradient(circle_at_18%_28%,rgba(59,130,246,0.55),transparent_62%),radial-gradient(circle_at_82%_32%,rgba(14,165,233,0.55),transparent_60%),radial-gradient(circle_at_45%_78%,rgba(29,78,216,0.55),transparent_65%),radial-gradient(circle_at_68%_70%,rgba(56,189,248,0.35),transparent_60%)]" />
+            {/* Subtle top + bottom vignette to keep text readable */}
+            <div className="absolute inset-0 bg-gradient-to-b from-[#021226]/60 via-transparent to-[#01070d]/80" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#061326] via-transparent to-[#061326]/40" />
+          </div>
+          {/* Content with transitions (kept above gradients) */}
           <LoginRightPanel />
-          {/* Bottom Accent */}
-          <div className="absolute bottom-0 left-0 right-0 h-2 bg-gradient-to-r from-white/0 via-white/20 to-white/0"></div>
+          {/* Bottom Accent Line */}
+          <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
         </div>
       </div>
     </div>
