@@ -1,10 +1,15 @@
 "use client";
 
 import { Fragment, useRef, useState, useEffect, useRef as useReactRef } from "react";
+import { Space_Grotesk } from "next/font/google";
 import { Dialog, Transition } from "@headlessui/react";
-import { X, Map, Layers, Brain, Target, Sparkles, BookOpen, PlayCircle, Compass, LogIn } from "lucide-react";
+import Image from "next/image";
+import { X, Map, Layers, Brain, Target, Sparkles, BookOpen, PlayCircle, Compass, LogIn, Linkedin } from "lucide-react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
+
+// Font loader must be at module scope (Next.js requirement)
+const space = Space_Grotesk({ subsets: ["latin"], weight: ["400","500","600","700"] });
 
 export default function LidmInfoButton() {
   const [open, setOpen] = useState(false);
@@ -112,6 +117,64 @@ export default function LidmInfoButton() {
 
                   {/* Scrollable Content */}
                   <div className="max-h-[70vh] overflow-y-auto px-6 pb-6 pt-5 text-sm leading-relaxed text-slate-700 dark:text-neutral-300">
+                    {/* Made By Section (moved to top) */}
+                    <div className="mb-10">
+                      <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2 justify-center">
+                        <Sparkles className="h-4 w-4 text-blue-600 dark:text-sky-400" /> Made By
+                      </h3>
+                      <div className="mt-3 text-center">
+                        <span className={`${space.className} text-xl font-bold tracking-tight bg-gradient-to-r from-blue-700 via-blue-600 to-sky-500 bg-clip-text text-transparent`}> - LoginSek - </span>
+                      </div>
+                      <div className="mt-6 grid gap-6 md:grid-cols-3">
+                        {[
+                          {
+                            name: 'Yefta Octavianus Santo',
+                            img: '/assets/team/yefta.jpg',
+                            href: 'https://www.linkedin.com/in/yefta-octa-875b33289/'
+                          },
+                          {
+                            name: 'Abdullah Shamil Basayev',
+                            img: '/assets/team/shamil.jpg',
+                            href: 'https://linkedin.com/in/shamilcoy'
+                          },
+                          {
+                            name: 'Dwi Ahmad Khairy',
+                            img: '/assets/team/dwik.jpg',
+                            href: 'https://linkedin.com/in/dwikh'
+                          }
+                        ].map((m) => (
+                          <div
+                            key={m.name}
+                            className="group relative flex flex-col items-center rounded-2xl bg-gradient-to-br from-white to-slate-50/60 p-5 transition hover:bg-white/80 dark:from-white/5 dark:to-white/[0.02]"
+                          >
+                            <div className="relative h-24 w-24 overflow-hidden rounded-xl ring-1 ring-slate-200 group-hover:ring-sky-300 dark:ring-white/10 dark:group-hover:ring-sky-500/50">
+                              <Image
+                                src={m.img}
+                                alt={m.name}
+                                fill
+                                className="object-cover"
+                                sizes="96px"
+                              />
+                            </div>
+                            <p className="mt-4 text-center text-[13px] font-semibold leading-snug text-slate-900 dark:text-white">
+                              {m.name}
+                            </p>
+                            <a
+                              href={m.href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-label={`LinkedIn ${m.name}`}
+                              className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-blue-600/10 px-2.5 py-1 text-[11px] font-medium text-blue-700 ring-1 ring-blue-600/20 transition hover:bg-blue-600/20 hover:text-blue-800 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/30 dark:hover:bg-sky-500/20"
+                            >
+                              <Linkedin className="h-3.5 w-3.5" />
+                              <span>LinkedIn</span>
+                            </a>
+                            <span className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-transparent group-hover:ring-sky-300/40 dark:group-hover:ring-sky-500/30" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
                     {/* Overview */}
                     <div className="grid gap-5 md:grid-cols-3">
                       <div className="group relative rounded-xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm transition hover:border-sky-300 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:hover:border-sky-500/40">
